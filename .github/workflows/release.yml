@@ -159,9 +159,11 @@ jobs:
         run: |
           $archive = Get-ChildItem dist\*.zip | Select-Object -First 1
           if ($null -eq $archive) { throw "zip artifact was not created" }
-          $members = (tar -tf $archive.FullName) | Where-Object { $_ -and $_ -notmatch '/$' }
-          if ($members.Count -ne 1 -or $members[0] -ne "$env:PLUGIN_ID.$env:EXT") {
-            throw "unexpected zip layout: $($members -join ', ')"
+          $extract = Join-Path $env:RUNNER_TEMP "cpa-credential-guard-zip-$env:GITHUB_RUN_ID"
+          Expand-Archive -LiteralPath $archive.FullName -DestinationPath $extract
+          $members = @(Get-ChildItem -LiteralPath $extract -File -Recurse)
+          if ($members.Count -ne 1 -or $members[0].Name -ne "$env:PLUGIN_ID.$env:EXT") {
+            throw "unexpected zip layout: $($members.Name -join ', ')"
           }
 
       - name: Upload platform artifact
