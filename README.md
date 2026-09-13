@@ -38,7 +38,22 @@ The repository address for this plugin is:
 https://github.com/Guciliang/cpa-credential-guard
 ```
 
-When the CPA version supports adding a plugin repository directly, enter that HTTPS repository URL—not the SSH URL, a source-file URL, or a zip URL. The repository must have at least one valid `v<major>.<minor>.<patch>` GitHub Release produced by the workflow. If the CPA UI only shows plugins from a registry, the same repository must additionally be added to the CPA plugin-store registry; the official store keeps registry metadata while release binaries remain in this repository.
+For the CPA **插件商店来源** field shown in the settings page, use the raw
+registry manifest URL instead of the repository URL:
+
+```text
+https://raw.githubusercontent.com/Guciliang/cpa-credential-guard/main/registry.json
+```
+
+The field accepts one registry/manifest URL per line. The manifest contains the
+repository metadata above, and CPA then resolves the latest matching GitHub
+Release from that repository. When the CPA version supports adding a plugin
+repository directly, enter the repository URL only in that repository-specific
+field—not in the plugin-store-source field.
+
+If the CPA UI only shows plugins from a registry, the same repository must
+additionally be added to the official CPA plugin-store registry; the official
+store keeps registry metadata while release binaries remain in this repository.
 
 To publish a release after the workflow is committed:
 

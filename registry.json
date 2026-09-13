@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "plugins": [
+    {
+      "id": "cpa-credential-guard",
+      "name": "CPA Credential Guard",
+      "description": "Codex-only quota recovery and safe batch proxy management for CLIProxyAPI without replacing CPA scheduling or retry behavior.",
+      "author": "Guciliang",
+      "version": "0.1.3",
+      "repository": "https://github.com/Guciliang/cpa-credential-guard",
+      "homepage": "https://github.com/Guciliang/cpa-credential-guard",
+      "tags": [
+        "Codex",
+        "Quota",
+        "Recovery",
+        "Proxy",
+        "Management"
+      ]
+    }
+  ]
+}
