@@ -8,116 +8,262 @@
     :root {
       color-scheme: dark;
       font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      font-size: 16px;
       --background: #0b1120;
+      --background-raised: #0f172a;
       --surface: #111827;
-      --surface-raised: #1f2937;
+      --surface-raised: #1b2336;
+      --surface-hover: #24324a;
       --border: #334155;
-      --text: #e5e7eb;
-      --muted: #94a3b8;
+      --border-strong: #475569;
+      --text: #f8fafc;
+      --text-soft: #dbeafe;
+      --muted: #a8b5c7;
+      --muted-strong: #cbd5e1;
       --accent: #60a5fa;
       --accent-strong: #2563eb;
+      --success: #4ade80;
+      --warning: #fbbf24;
       --danger: #f87171;
+      --danger-surface: #451a03;
+      --focus: #93c5fd;
+      --placeholder: #94a3b8;
+      --radius: .75rem;
+      --shadow: 0 14px 36px rgb(0 0 0 / .18);
     }
     * { box-sizing: border-box; }
     html { min-height: 100%; background: var(--background); }
     body {
+      min-width: 0;
+      min-height: 100vh;
       margin: 0;
-      padding: 1.5rem;
-      max-width: 1100px;
-      margin-inline: auto;
-      background: var(--background);
+      overflow-x: hidden;
+      padding: clamp(1rem, 3vw, 2.5rem);
+      background:
+        radial-gradient(circle at 92% 0%, rgb(37 99 235 / .14), transparent 34rem),
+        var(--background);
       color: var(--text);
       line-height: 1.5;
     }
-    button, input { font: inherit; }
+    button, input { font: inherit; touch-action: manipulation; }
     button, input {
+      min-height: 44px;
+      border: 1px solid var(--border);
+      border-radius: .55rem;
       color: var(--text);
       background: var(--surface);
-      border: 1px solid var(--border);
-      border-radius: .4rem;
     }
     button {
-      padding: .5rem .8rem;
+      padding: .55rem .9rem;
       cursor: pointer;
       background: var(--surface-raised);
+      font-weight: 600;
+      transition: border-color 180ms ease, background-color 180ms ease, transform 180ms ease;
     }
-    button:hover:not(:disabled) { border-color: var(--accent); background: #26364d; }
-    button:disabled { cursor: not-allowed; opacity: .55; }
-    input { min-width: 0; padding: .5rem .6rem; }
-    input::placeholder { color: #64748b; }
-    button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-    h1, h2, h3 { color: #f8fafc; line-height: 1.25; }
-    table { border-collapse: collapse; width: 100%; margin-top: 1rem; }
-    th, td { text-align: left; vertical-align: top; padding: .55rem; border-bottom: 1px solid var(--border); }
-    th { color: #cbd5e1; background: var(--surface); }
-    td { background: #0f172a; }
-    pre {
-      overflow: auto;
-      padding: .8rem;
-      border: 1px solid var(--border);
-      border-radius: .4rem;
-      background: var(--surface);
-      color: #dbeafe;
-    }
-    .auth-notice { margin: 0 0 1rem; padding: .8rem 1rem; border: 1px solid #b45309; border-radius: .4rem; background: #451a03; color: #fed7aa; }
-    .auth-notice h2 { margin: 0 0 .3rem; color: #fed7aa; font-size: 1rem; }
+    button:hover:not(:disabled) { border-color: var(--accent); background: var(--surface-hover); }
+    button:active:not(:disabled) { transform: translateY(1px); }
+    button:disabled { cursor: not-allowed; opacity: .5; }
+    button.primary { border-color: var(--accent-strong); background: var(--accent-strong); color: #eff6ff; }
+    button.primary:hover:not(:disabled) { background: #3b82f6; }
+    button.subtle { background: transparent; }
+    input { width: 100%; padding: .55rem .7rem; }
+    input::placeholder { color: var(--placeholder); }
+    input:invalid:not(:placeholder-shown) { border-color: var(--warning); }
+    button:focus-visible, input:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
+    h1, h2, h3, p { margin-top: 0; }
+    h1, h2, h3 { color: var(--text); line-height: 1.25; }
+    h1 { margin-bottom: .7rem; font-size: clamp(1.8rem, 4vw, 2.7rem); letter-spacing: -.025em; }
+    h2 { margin-bottom: .35rem; font-size: 1.25rem; }
+    h3 { margin-bottom: .25rem; font-size: 1rem; }
+    .page-shell { width: min(100%, 1240px); margin: 0 auto; }
+    .hero { margin-bottom: 1.25rem; padding: clamp(1.15rem, 3vw, 2rem); border: 1px solid var(--border); border-radius: var(--radius); background: linear-gradient(135deg, rgb(27 35 54 / .96), rgb(17 24 39 / .92)); box-shadow: var(--shadow); }
+    .hero-row, .section-heading, .panel-actions, .auth-actions { display: flex; align-items: center; justify-content: space-between; gap: 1rem; }
+    .hero-row { align-items: flex-start; }
+    .eyebrow { display: inline-flex; align-items: center; gap: .5rem; margin-bottom: .8rem; color: var(--muted-strong); font-size: .8rem; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
+    .status-dot { width: .6rem; height: .6rem; border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 .25rem rgb(96 165 250 / .16); }
+    .hero p { max-width: 72ch; margin-bottom: 0; color: var(--muted); }
+    .panel { min-width: 0; margin-bottom: 1rem; padding: clamp(1rem, 2vw, 1.35rem); border: 1px solid var(--border); border-radius: var(--radius); background: rgb(17 24 39 / .94); box-shadow: 0 8px 24px rgb(0 0 0 / .11); }
+    .panel-heading { margin-bottom: 1rem; }
+    .panel-heading p, .section-heading p { margin-bottom: 0; color: var(--muted); font-size: .9rem; }
+    .auth-panel { border-color: #36527a; background: linear-gradient(135deg, rgb(20 38 65 / .78), rgb(17 24 39 / .96)); }
+    .auth-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.35fr); gap: 1rem; }
+    .field { display: grid; gap: .4rem; min-width: 0; }
+    .field > span:first-child { color: var(--muted-strong); font-size: .9rem; font-weight: 650; }
+    .field-help { margin: 0; color: var(--muted); font-size: .8rem; }
+    .secret-field { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: .5rem; align-items: center; }
+    .secret-field button { min-width: 5rem; }
+    .auth-actions { justify-content: flex-start; margin-top: 1rem; }
+    .auth-detail { margin: .8rem 0 0; color: var(--muted); font-size: .88rem; }
+    .auth-notice { margin: 0 0 1rem; padding: .85rem 1rem; border: 1px solid #b45309; border-radius: .6rem; background: var(--danger-surface); color: #fed7aa; }
+    .auth-notice h2 { margin-bottom: .3rem; color: #fed7aa; font-size: 1rem; }
     .auth-notice p { margin: 0; }
-    .toolbar { display: flex; flex-wrap: wrap; gap: .6rem; align-items: end; }
-    label { display: grid; gap: .25rem; }
-    #message { min-height: 1.5rem; margin-top: .8rem; }
-    #groups { display: flex; flex-wrap: wrap; gap: .4rem; }
-    .group { border: 1px solid var(--border); border-radius: .35rem; padding: .35rem .55rem; background: var(--surface); }
-    @media (max-width: 700px) {
-      body { padding: 1rem; }
-      table { display: block; overflow-x: auto; white-space: nowrap; }
+    .skip-link { position: absolute; top: .5rem; left: .75rem; z-index: 10; padding: .65rem .85rem; border: 1px solid var(--focus); border-radius: .5rem; color: var(--text); background: var(--surface-raised); transform: translateY(-180%); transition: transform 180ms ease; }
+    .skip-link:focus { transform: translateY(0); }
+    .check-target { display: inline-flex; align-items: center; justify-content: center; width: 44px; min-width: 44px; min-height: 44px; cursor: pointer; }
+    .check-target input[type="checkbox"] { width: 1.25rem; min-height: 1.25rem; margin: 0; accent-color: var(--accent); }
+    .field-error { margin: 0; color: #fca5a5; font-size: .8rem; }
+    .field-error[hidden] { display: none; }
+    .skip-link + .page-shell { outline: none; }
+    #main-content:focus-visible { outline: 3px solid var(--focus); outline-offset: 4px; }
+    .status-pill { display: inline-flex; align-items: center; min-height: 32px; padding: .3rem .65rem; border: 1px solid var(--border); border-radius: 999px; color: var(--muted-strong); background: var(--surface); font-size: .8rem; font-weight: 700; white-space: nowrap; }
+    .status-pill[data-state="connected"] { border-color: rgb(74 222 128 / .45); color: #bbf7d0; background: rgb(20 83 45 / .34); }
+    .status-pill[data-state="manual"] { border-color: rgb(96 165 250 / .55); color: #dbeafe; background: rgb(30 64 175 / .28); }
+    .status-pill[data-state="loading"] { border-color: rgb(251 191 36 / .55); color: #fef3c7; background: rgb(120 53 15 / .35); }
+    .status-pill[data-state="error"] { border-color: rgb(248 113 113 / .55); color: #fecaca; background: rgb(127 29 29 / .35); }
+    .metric-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: .75rem; margin-bottom: 1rem; }
+    .metric-card { min-width: 0; padding: 1rem; border: 1px solid var(--border); border-radius: .65rem; background: var(--surface); }
+    .metric-label { display: block; overflow: hidden; color: var(--muted); font-size: .82rem; text-overflow: ellipsis; white-space: nowrap; }
+    .metric-value { display: block; margin: .25rem 0; color: var(--text); font-size: 1.6rem; font-variant-numeric: tabular-nums; }
+    .metric-detail { display: block; overflow-wrap: anywhere; color: var(--muted); font-size: .78rem; }
+    .settings-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .65rem; }
+    .setting-item { min-width: 0; padding: .75rem; border: 1px solid var(--border); border-radius: .55rem; background: var(--background-raised); }
+    .setting-label { display: block; margin-bottom: .2rem; color: var(--muted); font-size: .78rem; }
+    .setting-value { display: block; overflow-wrap: anywhere; color: var(--text-soft); font-size: .9rem; font-weight: 650; }
+    .workspace-grid { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(300px, .65fr); gap: 1rem; align-items: start; }
+    .workspace-grid .panel { height: 100%; }
+    .toolbar { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: .75rem; align-items: end; }
+    .toolbar-actions { display: flex; flex-wrap: wrap; gap: .5rem; margin-top: .85rem; }
+    .proxy-hint { margin: .9rem 0 0; color: var(--muted); font-size: .85rem; }
+    .group-list { display: flex; flex-wrap: wrap; gap: .5rem; min-height: 2.5rem; }
+    .group { display: inline-flex; align-items: center; gap: .5rem; max-width: 100%; padding: .5rem .7rem; border: 1px solid var(--border); border-radius: .55rem; background: var(--surface); }
+    .group-endpoint { overflow-wrap: anywhere; color: var(--text-soft); }
+    .group-count { flex: 0 0 auto; color: var(--muted); font-size: .8rem; }
+    .table-wrap { width: 100%; margin-top: 1rem; overflow-x: auto; border: 1px solid var(--border); border-radius: .6rem; }
+    table { width: 100%; min-width: 840px; border-collapse: collapse; }
+    th, td { padding: .75rem; border-bottom: 1px solid var(--border); text-align: left; vertical-align: top; }
+    th { color: var(--muted-strong); background: var(--surface); font-size: .8rem; font-weight: 700; white-space: nowrap; }
+    td { background: var(--background-raised); color: var(--text-soft); font-size: .9rem; }
+    tbody tr:last-child td { border-bottom: 0; }
+    tbody tr:hover td { background: #152138; }
+    td input[type="checkbox"] { width: 1.25rem; min-height: 1.25rem; accent-color: var(--accent); }
+    .cell-muted { color: var(--muted); font-size: .8rem; }
+    .inline-field { min-width: 12rem; margin-top: .45rem; }
+    .inline-field input { min-height: 44px; }
+    .result-list { display: grid; gap: .55rem; min-height: 3.25rem; }
+    .result-item { display: grid; grid-template-columns: minmax(6rem, .6fr) minmax(0, 1fr) auto; gap: .75rem; align-items: start; padding: .7rem; border: 1px solid var(--border); border-radius: .55rem; background: var(--background-raised); }
+    .result-id { color: var(--text-soft); font-weight: 700; overflow-wrap: anywhere; }
+    .result-detail { min-width: 0; color: var(--muted); font-size: .85rem; overflow-wrap: anywhere; }
+    .result-status { color: var(--muted-strong); font-size: .82rem; font-weight: 700; text-align: right; white-space: nowrap; }
+    .result-status[data-ok="true"] { color: var(--success); }
+    .result-status[data-ok="false"] { color: var(--danger); }
+    .empty-state, .loading-state { padding: 1rem; border: 1px dashed var(--border-strong); border-radius: .55rem; color: var(--muted); background: rgb(15 23 42 / .55); }
+    #message { min-height: 1.5rem; margin: 0 0 .75rem; color: var(--muted-strong); }
+    #message.error { color: #fca5a5; }
+    .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
+    @media (max-width: 980px) {
+      .metric-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .settings-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .workspace-grid { grid-template-columns: 1fr; }
+    }
+    @media (max-width: 640px) {
+      body { padding: .75rem; }
+      .hero-row, .section-heading, .panel-actions, .auth-actions { align-items: flex-start; flex-direction: column; }
+      .hero-actions, .auth-actions button { width: 100%; }
+      .auth-grid, .toolbar, .settings-grid { grid-template-columns: 1fr; }
+      .metric-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .55rem; }
+      .metric-card { padding: .75rem; }
+      .metric-value { font-size: 1.35rem; }
+      .result-item { grid-template-columns: 1fr; gap: .3rem; }
+      .result-status { text-align: left; }
+      .secret-field button { min-width: 5.5rem; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after { scroll-behavior: auto !important; transition-duration: .01ms !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; }
     }
   </style>
 </head>
 <body>
-<main>
-  <h1>CPA 凭证守护</h1>
-  <p class="muted">Codex 额度所有权与脱敏代理管理。本页面是静态界面；数据通过经过认证的插件路由加载。</p>
-  <section id="auth-notice" class="auth-notice" hidden aria-labelledby="auth-notice-heading">
+<a class="skip-link" href="#main-content">跳到主要内容</a>
+<main id="main-content" class="page-shell" tabindex="-1">
+  <header class="hero">
+    <div class="eyebrow"><span class="status-dot" aria-hidden="true"></span>CPA 插件管理</div>
+    <div class="hero-row">
+      <div>
+        <h1>CPA 凭证守护</h1>
+        <p>集中查看 Codex 凭证状态，安全预览批量代理变更，并在需要时进行无令牌连通性测试。插件不会替换 CPA 的调度、路由或重试行为。</p>
+      </div>
+      <div class="hero-actions"><button id="refresh" type="button">刷新状态</button></div>
+    </div>
+  </header>
+
+  <section id="auth-notice" class="auth-notice" hidden aria-labelledby="auth-notice-heading" role="alert">
     <h2 id="auth-notice-heading">需要 CPA 管理权限</h2>
-    <p id="auth-notice-text">请返回 CPA 管理中心登录，启用“记住密码”，然后刷新本页面。</p>
+    <p id="auth-notice-text">请返回 CPA 管理中心登录，启用“记住密码”，或者在下方手动输入管理密钥。</p>
   </section>
-  <section aria-labelledby="settings-heading">
-    <h2 id="settings-heading">生效配置</h2>
-    <pre id="settings" aria-live="polite">加载中…</pre>
+
+  <section class="panel auth-panel" aria-labelledby="auth-heading">
+    <div class="section-heading panel-heading">
+      <div><h2 id="auth-heading">连接 CPA</h2><p>优先使用 CPA 已保存的会话；也可以手动输入管理中心密钥。</p></div>
+      <span id="auth-state" class="status-pill" data-state="loading" role="status" aria-live="polite">正在检测会话…</span>
+    </div>
+    <div class="auth-grid">
+      <label class="field" for="manual-api-base"><span>CPA 管理地址（可选）</span><input id="manual-api-base" name="api-base" type="url" autocomplete="url" inputmode="url" placeholder="留空使用当前 CPA 地址" aria-describedby="manual-base-help manual-base-error"><small id="manual-base-help" class="field-help">通常无需修改；远程管理 CPA 时填写完整的 http(s) 地址。</small><small id="manual-base-error" class="field-error" role="alert" hidden></small></label>
+      <div class="field">
+        <label for="manual-key"><span>CPA 管理密钥</span></label>
+        <div class="secret-field"><input id="manual-key" name="management-key" type="password" autocomplete="current-password" spellcheck="false" placeholder="请输入 CPA 管理中心的 Management Key" aria-describedby="auth-help manual-key-error"><button id="toggle-manual-key" type="button" aria-controls="manual-key" aria-pressed="false">显示密钥</button></div>
+        <small id="auth-help" class="field-help">这是 CPA 管理中心的密钥，不是 Codex 凭证令牌。密钥只保存在本页面内存中，不会写入浏览器存储。</small>
+        <small id="manual-key-error" class="field-error" role="alert" hidden></small>
+      </div>
+    </div>
+    <div class="auth-actions"><button id="connect" class="primary" type="button">连接 CPA</button><button id="clear-manual" class="subtle" type="button">清除手动密钥</button></div>
+    <p id="auth-detail" class="auth-detail" aria-live="polite">正在尝试读取 CPA 已保存的管理会话。</p>
   </section>
-  <section aria-labelledby="proxy-heading">
-    <h2 id="proxy-heading">代理管理</h2>
-    <div class="toolbar">
-      <label>按端点或指纹筛选
-        <input id="filter" type="search" autocomplete="off" placeholder="proxy.example 或 sha256:">
-      </label>
-      <label>共享代理 URL（可选）
-        <input id="shared-proxy" type="url" autocomplete="off" placeholder="http://proxy.example:8080">
-      </label>
-      <button id="preview" type="button">预览所选变更</button>
-      <button id="apply" type="button" disabled>应用预览</button>
-      <button id="refresh" type="button">刷新状态</button>
+
+  <section class="metric-grid" aria-label="状态概览">
+    <article class="metric-card"><span class="metric-label">Codex 凭证</span><strong id="metric-credentials" class="metric-value">—</strong><small id="metric-credentials-detail" class="metric-detail">等待连接</small></article>
+    <article class="metric-card"><span class="metric-label">已停用凭证</span><strong id="metric-disabled" class="metric-value">—</strong><small id="metric-disabled-detail" class="metric-detail">等待状态数据</small></article>
+    <article class="metric-card"><span class="metric-label">已配置代理</span><strong id="metric-proxies" class="metric-value">—</strong><small id="metric-proxies-detail" class="metric-detail">代理字段已脱敏</small></article>
+    <article class="metric-card"><span class="metric-label">代理分组</span><strong id="metric-groups" class="metric-value">—</strong><small id="metric-groups-detail" class="metric-detail">按脱敏端点归组</small></article>
+  </section>
+
+  <section class="panel" aria-labelledby="settings-heading">
+    <div class="panel-heading"><h2 id="settings-heading">生效配置</h2><p>仅展示插件安全投影，不包含状态目录、凭证 JSON 或任何密钥。</p></div>
+    <div id="settings" class="settings-grid" aria-live="polite"><div class="loading-state">连接 CPA 后加载配置。</div></div>
+  </section>
+
+  <div class="workspace-grid">
+    <section class="panel" aria-labelledby="proxy-heading">
+      <div class="panel-heading"><h2 id="proxy-heading">批量代理管理</h2><p>先预览服务器校验后的结果，再应用到选中的凭证。</p></div>
+      <div class="toolbar">
+        <label class="field" for="filter"><span>筛选端点或指纹</span><input id="filter" type="search" autocomplete="off" placeholder="proxy.example 或 sha256:"></label>
+        <label class="field" for="shared-proxy"><span>共享代理 URL（可选）</span><input id="shared-proxy" type="url" autocomplete="off" inputmode="url" placeholder="http://proxy.example:8080"><small class="field-help">填写后会应用到所有选中的凭证。</small></label>
+      </div>
+      <div class="toolbar-actions"><button id="preview" class="primary" type="button">预览所选变更</button><button id="apply" type="button" disabled>应用预览</button></div>
+      <p class="proxy-hint">每行也可以填写不同的代理；留空表示清除该凭证代理。应用前会重新校验凭证版本，过期预览不会写入。</p>
+    </section>
+
+    <section class="panel" aria-labelledby="test-heading">
+      <div class="panel-heading"><h2 id="test-heading">无令牌连通性测试</h2><p>使用独立的有界传输测试固定的非 Codex HTTPS 目标。</p></div>
+      <label class="field" for="test-proxy"><span>测试代理 URL</span><input id="test-proxy" type="url" autocomplete="off" inputmode="url" placeholder="socks5://proxy.example:1080"><small class="field-help">不会加载 AuthIndex、凭证 JSON 或 CPA 凭证令牌。</small></label>
+      <div class="toolbar-actions"><button id="test" class="primary" type="button">测试代理</button></div>
+    </section>
+  </div>
+
+  <section class="panel" aria-labelledby="groups-heading">
+    <div class="section-heading panel-heading"><div><h2 id="groups-heading">代理分组</h2><p>相同的脱敏端点会合并显示，便于快速检查批量配置。</p></div><span id="groups-state" class="status-pill" data-state="loading">加载中…</span></div>
+    <div id="groups" class="group-list" aria-live="polite"><div class="loading-state">连接 CPA 后加载代理分组。</div></div>
+  </section>
+
+  <section class="panel" aria-labelledby="credentials-heading">
+    <div class="section-heading panel-heading"><div><h2 id="credentials-heading">Codex 凭证</h2><p>仅显示 CPA 返回的安全投影；代理端点和指纹已脱敏。</p></div><span id="credentials-state" class="status-pill" data-state="loading">加载中…</span></div>
+    <div class="table-wrap">
+      <table>
+        <caption class="sr-only">Codex 凭证和代理配置</caption>
+        <thead><tr><th scope="col">选择</th><th scope="col">凭证</th><th scope="col">已禁用</th><th scope="col">代理端点 / 变更</th><th scope="col">所有权 / 探测</th></tr></thead>
+        <tbody id="credentials"><tr><td colspan="5"><div class="loading-state">加载中…</div></td></tr></tbody>
+      </table>
     </div>
-    <div class="toolbar" style="margin-top:.7rem">
-      <label>无令牌连通性测试代理
-        <input id="test-proxy" type="url" autocomplete="off" placeholder="socks5://proxy.example:1080">
-      </label>
-      <button id="test" type="button">测试代理</button>
-    </div>
-    <p class="muted">结果中的代理 URL 会被脱敏。测试不会使用 CPA 凭证令牌，并且只访问固定的非 Codex 端点。</p>
-    <h3>代理分组</h3>
-    <div id="groups" aria-live="polite"><span class="muted">加载中…</span></div>
-    <div id="message" role="status" aria-live="polite"></div>
-    <pre id="results" aria-live="polite"></pre>
-    <table>
-      <thead><tr><th scope="col">选择</th><th scope="col">凭证</th><th scope="col">已禁用</th><th scope="col">代理端点 / 变更</th><th scope="col">所有权 / 探测</th></tr></thead>
-      <tbody id="credentials"><tr><td colspan="5">加载中…</td></tr></tbody>
-    </table>
+  </section>
+
+  <section class="panel" aria-labelledby="results-heading">
+    <div class="panel-heading"><h2 id="results-heading">操作结果</h2><p>批量操作会逐项返回结果，某一项失败不会阻止其他项继续处理。</p></div>
+    <div id="message" role="status" aria-live="polite">连接 CPA 后可以查看状态和执行操作。</div>
+    <div id="results" class="result-list" aria-live="polite"><div class="empty-state">暂无操作结果。</div></div>
   </section>
 </main>
 <script>
 'use strict';
-const state = { status: null, planId: '' };
+const state = { status: null, planId: '', changeVersion: 0, manualAuth: null, selectedAuthIndexes: new Set(), proxyDrafts: new Map(), requestController: null, sessionRequestVersion: 0, busy: false, busyKind: '' };
 const el = id => document.getElementById(id);
 const text = value => String(value == null ? '' : value);
 const safeErrorCodes = new Set([
@@ -129,118 +275,57 @@ const safeErrorCodes = new Set([
   'proxy_setup_failed', 'proxy_url_required', 'reachable', 'recovery_disabled', 'recovery_unavailable',
   'request_failed', 'response_read_failed', 'response_too_large', 'revision_unavailable',
   'scan_incomplete', 'stale_preview', 'target_invalid', 'target_reachable_non_success', 'timeout',
-  'connection_failed', 'canceled', 'unreachable', 'management_key_required', 'unauthorized', 'forbidden'
+  'connection_failed', 'canceled', 'unreachable', 'management_key_required', 'unauthorized', 'forbidden',
+  'network_error', 'invalid_management_address', 'manual_key_required'
 ]);
 const errorLabels = {
-  ambiguous_proxy_change: '代理变更不明确',
-  auth_index_required: '缺少凭证索引',
-  body_too_large: '请求内容过大',
-  codex_credential_not_found: '未找到 Codex 凭证',
-  content_type_required: '需要 JSON 内容类型',
-  credential_guard_disabled: '凭证守护未启用',
-  credential_unavailable: '凭证不可用',
-  duplicate_auth_index: '凭证索引重复',
-  empty_response: '响应为空',
-  host_unavailable: 'CPA Host API 不可用',
-  invalid_batch_size: '批量数量无效',
-  invalid_json: 'JSON 格式无效',
-  invalid_proxy: '代理地址无效',
-  invalid_proxy_batch: '代理批次无效',
-  invalid_response: '响应无效',
-  method_not_allowed: '不支持此请求方法',
-  not_found: '未找到请求资源',
-  plan_expired: '预览已过期',
-  plan_expired_or_unknown: '预览已过期或不存在',
-  plan_id_required: '缺少预览编号',
-  post_save_mismatch: '保存后校验不一致',
-  proxy_management_disabled: '代理管理未启用',
-  proxy_setup_failed: '代理建立失败',
-  proxy_url_required: '需要代理 URL',
-  reachable: '代理可连通',
-  recovery_disabled: '恢复功能未启用',
-  recovery_unavailable: '恢复功能不可用',
-  request_failed: '请求失败',
-  response_read_failed: '响应读取失败',
-  response_too_large: '响应过大',
-  revision_unavailable: '版本校验不可用',
-  scan_incomplete: '扫描未完成',
-  stale_preview: '预览已失效，凭证可能已被修改',
-  target_invalid: '测试目标无效',
-  target_reachable_non_success: '测试目标已连接但返回异常状态',
-  timeout: '请求超时',
-  connection_failed: '连接失败',
-  canceled: '请求已取消',
-  unreachable: '代理不可连通',
-  management_key_required: '未读取到 CPA 管理密钥，请先登录 CPA 管理中心并启用“记住密码”',
-  unauthorized: 'CPA 管理密钥无效或已过期，请重新登录管理中心',
-  forbidden: 'CPA 拒绝了管理请求，请检查管理权限'
+  ambiguous_proxy_change: '代理变更不明确', auth_index_required: '缺少凭证索引', body_too_large: '请求内容过大',
+  codex_credential_not_found: '未找到 Codex 凭证', content_type_required: '需要 JSON 内容类型',
+  credential_guard_disabled: '凭证守护未启用', credential_unavailable: '凭证不可用', duplicate_auth_index: '凭证索引重复',
+  empty_response: '响应为空', host_unavailable: 'CPA Host API 不可用', invalid_batch_size: '批量数量无效',
+  invalid_json: 'JSON 格式无效', invalid_proxy: '代理地址无效', invalid_proxy_batch: '代理批次无效',
+  invalid_response: '响应无效', method_not_allowed: '不支持此请求方法', not_found: '未找到请求资源',
+  plan_expired: '预览已过期', plan_expired_or_unknown: '预览已过期或不存在', plan_id_required: '缺少预览编号',
+  post_save_mismatch: '保存后校验不一致', proxy_management_disabled: '代理管理未启用', proxy_setup_failed: '代理建立失败',
+  proxy_url_required: '需要代理 URL', reachable: '代理可连通', recovery_disabled: '恢复功能未启用',
+  recovery_unavailable: '恢复功能不可用', request_failed: '请求失败', response_read_failed: '响应读取失败',
+  response_too_large: '响应过大', revision_unavailable: '版本校验不可用', scan_incomplete: '扫描未完成',
+  stale_preview: '预览已失效，凭证可能已被修改', target_invalid: '测试目标无效',
+  target_reachable_non_success: '测试目标已连接但返回异常状态', timeout: '请求超时', connection_failed: '连接失败',
+  canceled: '请求已取消', unreachable: '代理不可连通',
+  management_key_required: '未读取到 CPA 管理密钥，请先登录或手动输入密钥',
+  unauthorized: 'CPA 管理密钥无效或已过期，请重新连接', forbidden: 'CPA 拒绝了管理请求，请检查管理权限',
+  network_error: '无法连接 CPA，请检查管理地址和网络后重试',
+  invalid_management_address: 'CPA 管理地址无效，请填写 http(s) 地址且不要包含账号、密码或查询参数',
+  manual_key_required: '请输入 CPA 管理密钥后再连接'
 };
 const actionLabels = { set: '设置代理', replace: '替换代理', clear: '清除代理' };
-const phaseLabels = {
-  owned_disabled: '插件已停用',
-  restore_pending_probe: '等待恢复探测',
-  probe_pending: '等待探测',
-  manual_review: '人工复核'
-};
+const phaseLabels = { owned_disabled: '插件已停用', restore_pending_probe: '等待恢复探测', probe_pending: '等待探测', manual_review: '人工复核' };
 const reasonLabels = {
-  codex_usage_limit_reached: 'Codex 额度耗尽',
-  codex_quota_evidence: '检测到 Codex 额度证据',
-  codex_generic_rate_limit: '通用限流（已启用）',
-  oversized_failure: '响应过大',
-  bare_429: '未确认额度的 429',
-  invalid_failure: '失败信息无效',
-  non_quota_failure: '非额度错误',
-  recovery_error: '恢复错误',
-  host_error: 'Host API 错误',
-  unverifiable_pending_enable: '待恢复状态无法验证',
-  disable_revision_unavailable: '停用版本不可用',
-  post_enable_revision_unavailable: '恢复后版本不可用',
-  post_enable_guard_unavailable: '恢复后校验不可用',
-  redisable_failed: '重新停用失败',
-  redisable_revision_unavailable: '重新停用版本不可用',
-  ownership_guard_failed: '所有权校验失败',
-  probe_unavailable: '探测不可用',
-  probe_error: '探测错误',
-  health_client_unavailable: '健康检查不可用',
-  proxy_setup_failed: '代理建立失败',
-  request_failed: '请求失败',
-  timeout: '请求超时',
-  connection_failed: '连接失败',
-  canceled: '请求已取消',
-  empty_response: '空响应',
-  response_read_failed: '响应读取失败',
-  response_too_large: '响应过大',
-  auth_failed: '认证失败',
-  unexpected_status: '状态异常',
-  invalid_inventory: '额度清单无效',
-  quota_exhausted: '额度仍已耗尽',
-  save_failed: '保存失败',
-  revision_unavailable: '版本校验不可用',
-  stale_preview: '预览已失效',
-  post_save_mismatch: '保存后校验不一致',
-  unknown_phase: '未知恢复阶段'
+  codex_usage_limit_reached: 'Codex 额度耗尽', codex_quota_evidence: '检测到 Codex 额度证据', codex_generic_rate_limit: '通用限流（已启用）',
+  oversized_failure: '响应过大', bare_429: '未确认额度的 429', invalid_failure: '失败信息无效', non_quota_failure: '非额度错误',
+  recovery_error: '恢复错误', host_error: 'Host API 错误', unverifiable_pending_enable: '待恢复状态无法验证',
+  disable_revision_unavailable: '停用版本不可用', post_enable_revision_unavailable: '恢复后版本不可用',
+  post_enable_guard_unavailable: '恢复后校验不可用', redisable_failed: '重新停用失败', redisable_revision_unavailable: '重新停用版本不可用',
+  ownership_guard_failed: '所有权校验失败', probe_unavailable: '探测不可用', probe_error: '探测错误', health_client_unavailable: '健康检查不可用',
+  proxy_setup_failed: '代理建立失败', request_failed: '请求失败', timeout: '请求超时', connection_failed: '连接失败', canceled: '请求已取消',
+  empty_response: '空响应', response_read_failed: '响应读取失败', response_too_large: '响应过大', auth_failed: '认证失败',
+  unexpected_status: '状态异常', invalid_inventory: '额度清单无效', quota_exhausted: '额度仍已耗尽', save_failed: '保存失败',
+  revision_unavailable: '版本校验不可用', stale_preview: '预览已失效', post_save_mismatch: '保存后校验不一致', unknown_phase: '未知恢复阶段'
 };
 const probeStatusLabels = { success: '成功', exhausted: '仍然耗尽', ambiguous: '结果不明确', error: '错误' };
 const configLabels = {
-  enabled: '插件已启用',
-  state_dir_configured: '已配置持久化状态目录',
-  recovery_enabled: '启用额度恢复',
-  scan_interval: '扫描间隔',
-  initial_backoff: '初始退避时间',
-  max_backoff: '最大退避时间',
-  probe_enabled: '启用额度探测',
-  probe_provider: '探测提供方',
-  probe_model_configured: '已配置探测模型',
-  probe_timeout: '探测超时',
-  quota_detection_enabled: '启用额度检测',
-  detect_http_429: '检测 HTTP 429',
-  classify_generic_rate_limit: '分类通用限流',
-  proxy_management_enabled: '启用代理管理'
+  enabled: '插件已启用', state_dir_configured: '已配置持久化状态目录', recovery_enabled: '启用额度恢复', scan_interval: '扫描间隔',
+  initial_backoff: '初始退避时间', max_backoff: '最大退避时间', probe_enabled: '启用额度探测', probe_provider: '探测提供方',
+  probe_model_configured: '已配置探测模型', probe_timeout: '探测超时', quota_detection_enabled: '启用额度检测',
+  detect_http_429: '检测 HTTP 429', classify_generic_rate_limit: '分类通用限流', proxy_management_enabled: '启用代理管理'
 };
 const panelAuthStorageKey = 'cli-proxy-auth';
 const panelAuthPrefix = 'enc::v1::';
 const panelAuthSalt = 'cli-proxy-api-webui::secure-storage';
+const managementRequestTimeout = 30000;
 const stringValue = value => typeof value === 'string' ? value.trim() : '';
+function escapeHTML(value) { return text(value).replace(/[&<>"']/g, c => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c])); }
 function decodePanelAuth(value) {
   if (!value.startsWith(panelAuthPrefix)) return value;
   try {
@@ -250,16 +335,21 @@ function decodePanelAuth(value) {
     const decoded = new Uint8Array(encrypted.length);
     for (let index = 0; index < encrypted.length; index += 1) decoded[index] = encrypted[index] ^ key[index % key.length];
     return new TextDecoder().decode(decoded);
-  } catch (_) {
-    return '';
-  }
+  } catch (_) { return ''; }
 }
-function normalizeManagementBase(value) {
-  const trimmed = stringValue(value).replace(/\/+$/, '');
-  if (!trimmed || trimmed === window.location.origin) return '';
-  return /^https?:\/\//i.test(trimmed) ? trimmed : `http://${trimmed}`;
+function normalizeManagementBase(value, strict = false) {
+  const raw = stringValue(value);
+  if (!raw) return '';
+  if (strict && !/^https?:\/\//i.test(raw)) return null;
+  const candidate = /^https?:\/\//i.test(raw) ? raw : `http://${raw}`;
+  let parsed;
+  try { parsed = new URL(candidate, window.location.origin); } catch (_) { return null; }
+  if (!/^https?:$/.test(parsed.protocol) || parsed.username || parsed.password || parsed.search || parsed.hash || !parsed.host) return null;
+  const path = parsed.pathname.replace(/\/+$/, '');
+  const normalized = `${parsed.origin}${path === '/' ? '' : path}`;
+  return normalized === window.location.origin ? '' : normalized;
 }
-function managementSession() {
+function automaticManagementSession() {
   try {
     const stored = window.localStorage.getItem(panelAuthStorageKey);
     if (!stored) return null;
@@ -268,39 +358,79 @@ function managementSession() {
     const savedState = root.state && typeof root.state === 'object' ? root.state : root;
     const managementKey = stringValue(savedState.managementKey);
     if (!managementKey) return null;
-    return { baseURL: normalizeManagementBase(savedState.apiBase), managementKey };
-  } catch (_) {
-    return null;
-  }
+    const baseURL = normalizeManagementBase(savedState.apiBase);
+    return baseURL === null ? null : { baseURL: baseURL || '', managementKey, source: 'automatic' };
+  } catch (_) { return null; }
+}
+function managementSession() { return state.manualAuth || automaticManagementSession(); }
+function setAuthState(kind, label, detail) {
+  const node = el('auth-state');
+  const textNode = el('auth-detail');
+  if (node) { node.dataset.state = kind; node.textContent = label; }
+  if (textNode && detail) textNode.textContent = detail;
 }
 function setAuthNotice(code) {
   const notice = el('auth-notice');
   const noticeText = el('auth-notice-text');
   if (!notice || !noticeText) return;
   notice.hidden = !code;
-  if (code === 'management_key_required') noticeText.textContent = '请返回 CPA 管理中心登录，启用“记住密码”，然后刷新本页面。';
-  else if (code === 'unauthorized') noticeText.textContent = 'CPA 管理密钥无效或已过期，请返回管理中心重新登录并刷新本页面。';
-  else if (code === 'forbidden') noticeText.textContent = 'CPA 拒绝了管理请求，请确认当前账号具有管理权限。';
+  if (!code) return;
+  noticeText.textContent = errorLabels[code] || '无法连接 CPA，请重试。';
 }
 const safeErrorCode = (value, fallback = 'request_failed') => {
   const code = text(value);
   return !code ? fallback : (safeErrorCodes.has(code) ? code : fallback);
 };
-function errorLabel(value, fallback = '请求失败') {
-  const code = safeErrorCode(value, '');
-  return code ? (errorLabels[code] || '安全错误') : fallback;
-}
+function errorLabel(value, fallback = '请求失败') { const code = safeErrorCode(value, ''); return code ? (errorLabels[code] || '安全错误') : fallback; }
 function actionLabel(value) { return actionLabels[text(value)] || '代理变更'; }
 function phaseLabel(value) { return phaseLabels[text(value)] || '未知阶段'; }
 function reasonLabel(value) { return reasonLabels[text(value)] || '其他原因'; }
 function probeStatusLabel(value) { return probeStatusLabels[text(value)] || '结果不明确'; }
 function message(value, error) { const node = el('message'); node.textContent = text(value); node.className = error ? 'error' : ''; }
+function invalidatePlan() {
+  state.changeVersion += 1;
+  state.planId = '';
+  const applyButton = el('apply');
+  if (applyButton) applyButton.disabled = true;
+}
+function valueLabel(value) {
+  if (typeof value === 'boolean') return value ? '是' : '否';
+  if (value == null || value === '') return '未设置';
+  if (typeof value === 'object') return JSON.stringify(value);
+  return text(value);
+}
+const durationSettingKeys = new Set(['scan_interval', 'initial_backoff', 'max_backoff', 'probe_timeout']);
+function durationLabel(value) {
+  const nanoseconds = typeof value === 'number' ? value : Number(value);
+  if (!Number.isFinite(nanoseconds) || nanoseconds < 0) return valueLabel(value);
+  let seconds = Math.round(nanoseconds / 1e9);
+  if (seconds < 60) return `${seconds} 秒`;
+  const minutes = Math.floor(seconds / 60);
+  seconds %= 60;
+  if (minutes < 60) return seconds ? `${minutes} 分 ${seconds} 秒` : `${minutes} 分钟`;
+  const hours = Math.floor(minutes / 60);
+  const remainingMinutes = minutes % 60;
+  if (hours < 24) return remainingMinutes ? `${hours} 小时 ${remainingMinutes} 分钟` : `${hours} 小时`;
+  const days = Math.floor(hours / 24);
+  const remainingHours = hours % 24;
+  return remainingHours ? `${days} 天 ${remainingHours} 小时` : `${days} 天`;
+}
+function settingValueLabel(key, value) { return durationSettingKeys.has(key) ? durationLabel(value) : valueLabel(value); }
+function setFieldError(inputID, errorID, value) {
+  const input = el(inputID);
+  const error = el(errorID);
+  const hasError = Boolean(value);
+  if (input) input.setAttribute('aria-invalid', hasError ? 'true' : 'false');
+  if (error) { error.hidden = !hasError; error.textContent = hasError ? text(value) : ''; }
+}
+function clearAuthFieldErrors() {
+  setFieldError('manual-api-base', 'manual-base-error', '');
+  setFieldError('manual-key', 'manual-key-error', '');
+}
 async function api(path, options) {
   const session = managementSession();
-  if (!session) {
-    setAuthNotice('management_key_required');
-    throw new Error('management_key_required');
-  }
+  if (!session) { setAuthNotice('management_key_required'); setAuthState('error', '需要连接', '自动检测不到会话，请手动输入 CPA 管理密钥。'); throw new Error('management_key_required'); }
+  const requestVersion = state.sessionRequestVersion;
   const requestOptions = Object.assign({}, options || {});
   requestOptions.credentials = 'omit';
   const headers = new Headers(requestOptions.headers || {});
@@ -310,23 +440,76 @@ async function api(path, options) {
   headers.delete('Proxy-Authorization');
   headers.set('Authorization', `Bearer ${session.managementKey}`);
   requestOptions.headers = headers;
-  const response = await fetch(`${session.baseURL}/v0/management/plugins/cpa-credential-guard${path}`, requestOptions);
-  const data = await response.json().catch(() => ({}));
+  const controller = new AbortController();
+  state.requestController = controller;
+  let timedOut = false;
+  const timeoutID = window.setTimeout(() => { timedOut = true; controller.abort(); }, managementRequestTimeout);
+  requestOptions.signal = controller.signal;
+  let response;
+  let data;
+  try {
+    response = await fetch(`${session.baseURL}/v0/management/plugins/cpa-credential-guard${path}`, requestOptions);
+    data = await response.json().catch(error => {
+      if (controller.signal.aborted) throw error;
+      return {};
+    });
+  } catch (_) {
+    const superseded = requestVersion !== state.sessionRequestVersion;
+    const code = controller.signal.aborted ? (timedOut ? 'timeout' : 'canceled') : 'network_error';
+    if (!superseded) {
+      setAuthNotice(code);
+      const label = code === 'timeout' ? '请求超时' : (code === 'canceled' ? '连接已取消' : '连接失败');
+      const detail = code === 'timeout' ? 'CPA 响应时间过长，请检查网络后重试。' : (code === 'canceled' ? '连接请求已被新的认证操作替换。' : '请检查管理地址和网络后重试。');
+      setAuthState('error', label, detail);
+    }
+    throw new Error(code);
+  } finally {
+    window.clearTimeout(timeoutID);
+    if (state.requestController === controller) state.requestController = null;
+  }
   if (!response.ok) {
     const fallback = response.status === 401 ? 'unauthorized' : (response.status === 403 ? 'forbidden' : 'request_failed');
-    const code = safeErrorCode(data.error, fallback);
-    if (code === 'unauthorized' || code === 'forbidden') setAuthNotice(code);
+    const code = safeErrorCode(data && data.error, fallback);
+    if (requestVersion === state.sessionRequestVersion && (code === 'unauthorized' || code === 'forbidden')) { setAuthNotice(code); setAuthState('error', '认证失败', '请重新输入管理密钥或返回 CPA 管理中心登录。'); }
     throw new Error(code);
   }
-  setAuthNotice('');
+  if (requestVersion === state.sessionRequestVersion) {
+    setAuthNotice('');
+    setAuthState(session.source === 'manual' ? 'manual' : 'connected', session.source === 'manual' ? '已手动连接' : '已自动连接', session.source === 'manual' ? '当前使用手动输入的密钥，仅保存在本页面内存中。' : '已使用 CPA 保存的管理会话。');
+  }
   return data;
 }
 function localizedSettings(config) {
   const output = {};
   Object.entries(config || {}).forEach(([key, value]) => {
-    output[configLabels[key] || key] = typeof value === 'boolean' ? (value ? '是' : '否') : value;
+    if (!Object.prototype.hasOwnProperty.call(configLabels, key)) return;
+    output[configLabels[key]] = settingValueLabel(key, value);
   });
   return output;
+}
+function isRecord(value) { return value !== null && typeof value === 'object' && !Array.isArray(value); }
+function statusProjection(value) {
+  if (!isRecord(value) || !isRecord(value.config) || !isRecord(value.state) || !Array.isArray(value.credentials) || !Array.isArray(value.proxy_groups) || value.credentials.some(row => !isRecord(row)) || value.proxy_groups.some(group => !isRecord(group))) throw new Error('invalid_response');
+  return value;
+}
+function renderSettings(config) {
+  const settings = localizedSettings(config);
+  const entries = Object.entries(settings);
+  el('settings').innerHTML = entries.length ? entries.map(([key, value]) => `<div class="setting-item"><span class="setting-label">${escapeHTML(key)}</span><strong class="setting-value">${escapeHTML(value)}</strong></div>`).join('') : '<div class="empty-state">暂无可展示的配置。</div>';
+}
+function renderMetrics(data) {
+  const credentials = Array.isArray(data && data.credentials) ? data.credentials : [];
+  const groups = Array.isArray(data && data.proxy_groups) ? data.proxy_groups : [];
+  const disabled = credentials.filter(row => Boolean(row && row.disabled === true)).length;
+  const configured = credentials.filter(row => Boolean(row && row.proxy && row.proxy.configured === true)).length;
+  el('metric-credentials').textContent = String(credentials.length);
+  el('metric-disabled').textContent = String(disabled);
+  el('metric-proxies').textContent = String(configured);
+  el('metric-groups').textContent = String(groups.length);
+  el('metric-credentials-detail').textContent = data && data.state && data.state.available ? 'Host 状态可用' : 'Host 状态不可用';
+  el('metric-disabled-detail').textContent = disabled ? '仅显示原生 disabled 状态' : '当前没有已停用凭证';
+  el('metric-proxies-detail').textContent = configured ? '端点已脱敏' : '当前没有配置代理';
+  el('metric-groups-detail').textContent = groups.length ? '按脱敏端点归组' : '暂无代理分组';
 }
 function ownershipText(ownership) {
   if (!ownership) return '非插件所有';
@@ -334,14 +517,48 @@ function ownershipText(ownership) {
   return `${phaseLabel(ownership.phase)} / ${reasonLabel(ownership.last_reason)}${probe}`;
 }
 function render(data) {
-  state.status = data;
-  el('settings').textContent = JSON.stringify(localizedSettings(data.config || {}), null, 2);
-  el('groups').innerHTML = (data.proxy_groups || []).map(group => `<span class="group">${escapeHTML(group.endpoint || group.fingerprint || '未知端点')} × ${escapeHTML(group.count || 0)}</span>`).join('') || '<span class="muted">暂无已配置的代理分组。</span>';
+  state.status = data || {};
+  renderMetrics(state.status);
+  renderSettings(state.status.config || {});
+  const groups = Array.isArray(state.status.proxy_groups) ? state.status.proxy_groups.filter(group => group && typeof group === 'object') : [];
+  el('groups-state').dataset.state = 'connected';
+  el('groups-state').textContent = `${groups.length} 组`;
+  el('groups').innerHTML = groups.map(group => `<span class="group"><span class="group-endpoint">${escapeHTML(group.endpoint || group.fingerprint || '未知端点')}</span><span class="group-count">${escapeHTML(group.count || 0)} 个</span></span>`).join('') || '<div class="empty-state">暂无已配置的代理分组。</div>';
   renderRows();
 }
+function renderDisconnected(reason) {
+  state.status = null;
+  invalidatePlan();
+  renderMetrics({ credentials: [], proxy_groups: [], state: { available: false } });
+  renderSettings({});
+  el('groups-state').dataset.state = 'error';
+  el('groups-state').textContent = '等待连接';
+  el('groups').innerHTML = `<div class="empty-state">${escapeHTML(reason || '连接 CPA 后加载代理分组。')}</div>`;
+  el('credentials-state').dataset.state = 'error';
+  el('credentials-state').textContent = '等待连接';
+  el('credentials').innerHTML = '<tr><td colspan="5"><div class="empty-state">连接 CPA 后加载 Codex 凭证。</div></td></tr>';
+}
+function rememberRowInputs() {
+  document.querySelectorAll('[data-auth-index]').forEach(input => {
+    const authIndex = text(input.dataset.authIndex);
+    if (!authIndex) return;
+    if (input.checked) state.selectedAuthIndexes.add(authIndex);
+    else state.selectedAuthIndexes.delete(authIndex);
+  });
+  document.querySelectorAll('[data-proxy-input]').forEach(input => {
+    const authIndex = text(input.dataset.proxyInput);
+    if (authIndex) state.proxyDrafts.set(authIndex, input.value);
+  });
+}
 function renderRows() {
+  if (!state.status) return;
+  rememberRowInputs();
   const filter = el('filter').value.trim().toLowerCase();
-  const rows = ((state.status && state.status.credentials) || []).filter(row => {
+  const allRows = (state.status && Array.isArray(state.status.credentials)) ? state.status.credentials.filter(row => row && typeof row === 'object') : [];
+  const validAuthIndexes = new Set(allRows.map(row => text(row.auth_index)));
+  state.selectedAuthIndexes.forEach(authIndex => { if (!validAuthIndexes.has(authIndex)) state.selectedAuthIndexes.delete(authIndex); });
+  state.proxyDrafts.forEach((_, authIndex) => { if (!validAuthIndexes.has(authIndex)) state.proxyDrafts.delete(authIndex); });
+  const rows = allRows.filter(row => {
     const proxy = row.proxy || {};
     return !filter || [row.auth_index, row.file_name, proxy.endpoint, proxy.fingerprint].some(value => text(value).toLowerCase().includes(filter));
   }).map(row => {
@@ -349,81 +566,166 @@ function renderRows() {
     const authIndex = text(row.auth_index);
     const endpoint = text(proxy.endpoint) || '无';
     const fingerprint = text(proxy.fingerprint);
-    return `<tr><td><input type="checkbox" data-auth-index="${escapeHTML(authIndex)}" aria-label="选择 ${escapeHTML(authIndex)}"></td><td>${escapeHTML(authIndex)}<br><span class="muted">${escapeHTML(row.file_name || '')}</span></td><td>${row.disabled ? '是' : '否'}</td><td>${escapeHTML(endpoint)}<br><span class="muted">${escapeHTML(fingerprint)}</span><br><label class="muted">设置此凭证的代理<input type="url" data-proxy-input="${escapeHTML(authIndex)}" autocomplete="off" placeholder="留空则清除（除非设置了共享值）" aria-label="为 ${escapeHTML(authIndex)} 设置代理"></label></td><td>${escapeHTML(ownershipText(row.ownership))}</td></tr>`;
+    const draft = text(state.proxyDrafts.get(authIndex));
+    const checked = state.selectedAuthIndexes.has(authIndex) ? ' checked' : '';
+    return `<tr><td><label class="check-target"><input type="checkbox" data-auth-index="${escapeHTML(authIndex)}"${checked} aria-label="选择凭证 ${escapeHTML(authIndex)}"></label></td><td><strong>${escapeHTML(authIndex)}</strong><br><span class="cell-muted">${escapeHTML(row.file_name || '')}</span></td><td>${row.disabled === true ? '是' : '否'}</td><td><span>${escapeHTML(endpoint)}</span><br><span class="cell-muted">${escapeHTML(fingerprint)}</span><label class="field inline-field" for="proxy-input-${escapeHTML(authIndex)}"><span>设置此凭证的代理</span><input id="proxy-input-${escapeHTML(authIndex)}" type="url" data-proxy-input="${escapeHTML(authIndex)}" value="${escapeHTML(draft)}" autocomplete="off" placeholder="留空则清除" aria-label="为 ${escapeHTML(authIndex)} 设置代理"></label></td><td>${escapeHTML(ownershipText(row.ownership))}</td></tr>`;
   }).join('');
-  el('credentials').innerHTML = rows || '<tr><td colspan="5">没有匹配的 Codex 凭证。</td></tr>';
+  el('credentials').innerHTML = rows || `<tr><td colspan="5"><div class="empty-state">${filter ? '没有匹配的 Codex 凭证。' : '暂无 Codex 凭证。'}</div></td></tr>`;
+  el('credentials-state').dataset.state = 'connected';
+  el('credentials-state').textContent = `${rows ? allRows.filter(row => { const proxy = row.proxy || {}; return !filter || [row.auth_index, row.file_name, proxy.endpoint, proxy.fingerprint].some(value => text(value).toLowerCase().includes(filter)); }).length : 0} 项`;
 }
-function mutationResults(items, includeStatus) {
-  return (items || []).map(item => {
-    const result = {
-      '凭证索引': text(item.auth_index),
-      '操作': actionLabel(item.action),
-      '原代理端点': text(item.old_endpoint) || '无',
-      '新代理端点': text(item.new_endpoint) || '无'
-    };
-    if (includeStatus) result['结果'] = item.ok ? '成功' : '失败';
-    result['错误'] = item.error_code ? errorLabel(item.error_code) : '无';
-    return result;
+function renderMutationResults(items, includeStatus) {
+  const results = (Array.isArray(items) ? items : []).filter(item => item && typeof item === 'object').map(item => {
+    const ok = includeStatus ? item.ok === true : !item.error_code;
+    const status = includeStatus ? (ok ? '成功' : '失败') : (item.error_code ? '需检查' : '已预览');
+    const detail = `${actionLabel(item.action)} · ${text(item.old_endpoint) || '无'} → ${text(item.new_endpoint) || '无'}${item.error_code ? ` · ${errorLabel(item.error_code)}` : ''}`;
+    return `<article class="result-item"><strong class="result-id">${escapeHTML(text(item.auth_index))}</strong><span class="result-detail">${escapeHTML(detail)}</span><span class="result-status" data-ok="${ok}">${escapeHTML(status)}</span></article>`;
   });
+  el('results').innerHTML = results.join('') || '<div class="empty-state">暂无操作结果。</div>';
 }
-function testResults(items) {
-  return (items || []).map(item => ({
-    '代理端点': text(item.endpoint) || '脱敏端点',
-    '结果': item.ok ? '可连通' : '不可连通',
-    'HTTP 状态码': item.http_status || '无',
-    '延迟': item.latency_ms ? `${item.latency_ms} 毫秒` : '无',
-    '错误': item.error_code ? errorLabel(item.error_code) : '无'
-  }));
+function renderTestResults(items) {
+  const results = (Array.isArray(items) ? items : []).filter(item => item && typeof item === 'object').map(item => {
+    const ok = item.ok === true;
+    const endpoint = text(item.endpoint) || '脱敏端点';
+    const detail = `${endpoint} · HTTP ${item.http_status || '无'} · ${item.latency_ms ? `${item.latency_ms} 毫秒` : '无延迟数据'}${item.error_code ? ` · ${errorLabel(item.error_code)}` : ''}`;
+    return `<article class="result-item"><strong class="result-id">${escapeHTML(endpoint)}</strong><span class="result-detail">${escapeHTML(detail)}</span><span class="result-status" data-ok="${ok}">${ok ? '可连通' : '不可连通'}</span></article>`;
+  });
+  el('results').innerHTML = results.join('') || '<div class="empty-state">暂无测试结果。</div>';
 }
-function escapeHTML(value) { return text(value).replace(/[&<>"']/g, c => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c])); }
+function setBusy(busy, kind = '') {
+  state.busy = busy;
+  state.busyKind = busy ? kind : '';
+  ['refresh', 'connect', 'clear-manual', 'preview', 'apply', 'test'].forEach(id => {
+    const node = el(id);
+    if (node) node.disabled = busy && !(id === 'connect' && kind === 'refresh') || (id === 'apply' && !state.planId);
+  });
+  document.body.setAttribute('aria-busy', busy ? 'true' : 'false');
+}
 async function refresh() {
-  try { render(await api('/status')); message('状态已刷新。'); }
-  catch (error) { message(errorLabel(error.message, '无法加载状态。'), true); }
+  if (state.busy) return;
+  const requestVersion = ++state.sessionRequestVersion;
+  invalidatePlan();
+  message('正在读取 CPA 状态…');
+  setBusy(true, 'refresh');
+  setAuthState('loading', '正在连接…', '正在读取 CPA 管理状态。');
+  try {
+    const data = await api('/status');
+    if (requestVersion !== state.sessionRequestVersion) return;
+    render(statusProjection(data));
+    message('状态已刷新。');
+  } catch (error) {
+    if (requestVersion !== state.sessionRequestVersion) return;
+    const code = safeErrorCode(error.message, 'request_failed');
+    renderDisconnected(errorLabel(code, '无法加载状态。'));
+    const authLabel = code === 'unauthorized' || code === 'forbidden' ? '认证失败' : (code === 'management_key_required' ? '需要连接' : '连接失败');
+    setAuthState('error', authLabel, errorLabel(code, '请检查连接后重试。'));
+    message(errorLabel(code, '无法加载状态。'), true);
+  }
+  finally { if (requestVersion === state.sessionRequestVersion) setBusy(false); }
+}
+async function connectManual() {
+  if (state.busy && state.busyKind !== 'refresh') return;
+  clearAuthFieldErrors();
+  const key = stringValue(el('manual-key').value);
+  if (!key) { const error = errorLabels.manual_key_required; setFieldError('manual-key', 'manual-key-error', error); message(error, true); setAuthNotice('manual_key_required'); setAuthState('error', '需要密钥', '请输入 CPA 管理中心的 Management Key。'); el('manual-key').focus(); return; }
+  const baseURL = normalizeManagementBase(el('manual-api-base').value, true);
+  if (baseURL === null) { const error = errorLabels.invalid_management_address; setFieldError('manual-api-base', 'manual-base-error', error); message(error, true); setAuthNotice('invalid_management_address'); setAuthState('error', '地址无效', '请修正 CPA 管理地址后重试。'); el('manual-api-base').focus(); return; }
+  if (state.busyKind === 'refresh' && state.requestController) state.requestController.abort();
+  const requestVersion = ++state.sessionRequestVersion;
+  invalidatePlan();
+  state.manualAuth = { baseURL: baseURL || '', managementKey: key, source: 'manual' };
+  setBusy(true, 'manual');
+  setAuthState('loading', '正在验证…', '正在使用手动密钥请求 GET /status。');
+  try {
+    const data = await api('/status');
+    if (requestVersion !== state.sessionRequestVersion) return;
+    render(statusProjection(data));
+    setAuthNotice('');
+    message('CPA 已连接，手动密钥仅保存在本页面内存中。');
+  } catch (error) {
+    if (requestVersion !== state.sessionRequestVersion) return;
+    const code = safeErrorCode(error.message, 'request_failed');
+    renderDisconnected(errorLabel(code, '连接失败。'));
+    const authLabel = code === 'unauthorized' || code === 'forbidden' ? '认证失败' : '连接失败';
+    setAuthState('error', authLabel, errorLabel(code, '请检查管理地址和网络后重试。'));
+    message(errorLabel(code, '连接失败。'), true);
+  }
+  finally { if (requestVersion === state.sessionRequestVersion) setBusy(false); }
+}
+function resetManualKeyInput() {
+  const input = el('manual-key');
+  const button = el('toggle-manual-key');
+  if (input) { input.value = ''; input.type = 'password'; }
+  if (button) { button.textContent = '显示密钥'; button.setAttribute('aria-pressed', 'false'); }
+}
+async function clearManual() {
+  state.manualAuth = null;
+  resetManualKeyInput();
+  clearAuthFieldErrors();
+  setAuthNotice('');
+  const automatic = automaticManagementSession();
+  if (automatic) { message('已清除手动密钥，正在恢复自动会话。'); await refresh(); return; }
+  setAuthState('error', '未连接', '已清除手动密钥；如需继续操作，请重新输入并连接。'); renderDisconnected('已清除手动密钥，请重新连接 CPA。'); message('已清除手动密钥。');
+}
+function toggleManualKey() {
+  const input = el('manual-key');
+  const button = el('toggle-manual-key');
+  const visible = input.type === 'text';
+  input.type = visible ? 'password' : 'text';
+  button.textContent = visible ? '显示密钥' : '隐藏密钥';
+  button.setAttribute('aria-pressed', visible ? 'false' : 'true');
 }
 async function preview() {
+  if (state.busy) return;
   const selected = [...document.querySelectorAll('[data-auth-index]:checked')].map(input => input.dataset.authIndex);
   if (!selected.length) { message('请至少选择一个凭证。', true); return; }
+  invalidatePlan();
+  const previewVersion = state.changeVersion;
   const shared = el('shared-proxy').value.trim();
-  const changes = selected.map(authIndex => {
-    const per = [...document.querySelectorAll('[data-proxy-input]')].find(input => input.dataset.proxyInput === authIndex);
-    const raw = shared || (per && per.value.trim()) || '';
-    return raw ? { auth_index: authIndex, proxy_url: raw } : { auth_index: authIndex, clear: true };
-  });
-  try {
-    const result = await api('/proxy/preview', { method: 'POST', body: JSON.stringify({ changes }) });
-    state.planId = result.plan_id || '';
-    el('apply').disabled = !state.planId;
-    message(`${(result.items || []).length} 项变更已生成预览。请在应用前检查已脱敏的端点。`);
-    el('results').textContent = JSON.stringify(mutationResults(result.items, false), null, 2);
-  } catch (error) { message(`预览失败：${errorLabel(error.message)}`, true); }
+  const changes = selected.map(authIndex => { const per = [...document.querySelectorAll('[data-proxy-input]')].find(input => input.dataset.proxyInput === authIndex); const raw = shared || (per && per.value.trim()) || ''; return raw ? { auth_index: authIndex, proxy_url: raw } : { auth_index: authIndex, clear: true }; });
+  message('正在生成代理预览…');
+  setBusy(true);
+  try { const result = await api('/proxy/preview', { method: 'POST', body: JSON.stringify({ changes }) });
+    if (previewVersion !== state.changeVersion) { message('输入已变化，预览已丢弃，请重新预览。', true); return; }
+    state.planId = result.plan_id || ''; renderMutationResults(result.items, false); message(`${(Array.isArray(result.items) ? result.items : []).length} 项变更已生成预览。请检查脱敏端点后再应用。`); }
+  catch (error) { message(`预览失败：${errorLabel(error.message)}`, true); }
+  finally { setBusy(false); el('apply').disabled = !state.planId; }
 }
 async function apply() {
-  if (!state.planId) return;
-  try {
-    const result = await api('/proxy/apply', { method: 'POST', body: JSON.stringify({ plan_id: state.planId }) });
-    state.planId = '';
-    el('apply').disabled = true;
-    const failed = (result.items || []).filter(item => !item.ok).length;
-    el('results').textContent = JSON.stringify(mutationResults(result.items, true), null, 2);
-    message(failed ? `${failed} 项失败；其余项目已继续处理。` : '代理变更已应用。', Boolean(failed));
-    await refresh();
-  } catch (error) { message(`应用失败：${errorLabel(error.message)}`, true); }
+  if (!state.planId || state.busy) return;
+  let refreshAfterApply = false;
+  message('正在应用代理预览…');
+  setBusy(true);
+  try { const result = await api('/proxy/apply', { method: 'POST', body: JSON.stringify({ plan_id: state.planId }) }); invalidatePlan(); renderMutationResults(result.items, true); const resultItems = Array.isArray(result.items) ? result.items : []; const failed = resultItems.filter(item => !(item && item.ok === true)).length; message(failed ? `${failed} 项失败；其余项目已继续处理。` : '代理变更已应用。', Boolean(failed)); refreshAfterApply = true; }
+  catch (error) { invalidatePlan(); message(`应用失败：${errorLabel(error.message)}`, true); }
+  finally { setBusy(false); el('apply').disabled = !state.planId; if (refreshAfterApply) await refresh(); }
 }
 async function testProxy() {
+  if (state.busy) return;
   const raw = el('test-proxy').value.trim();
-  if (!raw) { message('请输入要测试的代理 URL。', true); return; }
-  try {
-    const result = await api('/proxy/test', { method: 'POST', body: JSON.stringify({ proxies: [raw] }) });
-    const item = (result.items || [])[0] || {};
-    el('results').textContent = JSON.stringify(testResults(result.items), null, 2);
-    message(item.ok ? `代理可连通：${item.endpoint || '脱敏端点'}（${item.latency_ms || 0} 毫秒）` : `代理测试失败：${errorLabel(item.error_code, '代理不可连通')}`, !item.ok);
-  } catch (error) { message(`代理测试失败：${errorLabel(error.message)}`, true); }
+  if (!raw) { message('请输入要测试的代理 URL。', true); el('test-proxy').focus(); return; }
+  message('正在测试代理连通性…');
+  setBusy(true);
+  try { const result = await api('/proxy/test', { method: 'POST', body: JSON.stringify({ proxies: [raw] }) }); renderTestResults(result.items); const resultItems = Array.isArray(result.items) ? result.items : []; const item = resultItems[0] && typeof resultItems[0] === 'object' ? resultItems[0] : {}; message(item.ok === true ? `代理可连通：${text(item.endpoint) || '脱敏端点'}（${item.latency_ms || 0} 毫秒）` : `代理测试失败：${errorLabel(item.error_code, '代理不可连通')}`, item.ok !== true); }
+  catch (error) { message(`代理测试失败：${errorLabel(error.message)}`, true); }
+  finally { setBusy(false); }
 }
 el('refresh').addEventListener('click', refresh);
+el('connect').addEventListener('click', connectManual);
+el('clear-manual').addEventListener('click', clearManual);
+el('toggle-manual-key').addEventListener('click', toggleManualKey);
 el('preview').addEventListener('click', preview);
 el('apply').addEventListener('click', apply);
 el('test').addEventListener('click', testProxy);
-el('filter').addEventListener('input', renderRows);
+el('filter').addEventListener('input', () => { invalidatePlan(); renderRows(); });
+el('shared-proxy').addEventListener('input', invalidatePlan);
+el('credentials').addEventListener('input', event => { if (event.target.matches('[data-proxy-input]')) invalidatePlan(); });
+el('credentials').addEventListener('change', event => { if (event.target.matches('[data-auth-index]')) invalidatePlan(); });
+el('manual-api-base').addEventListener('input', () => { setFieldError('manual-api-base', 'manual-base-error', ''); invalidatePlan(); });
+el('manual-key').addEventListener('input', () => { setFieldError('manual-key', 'manual-key-error', ''); invalidatePlan(); });
+el('manual-key').addEventListener('keydown', event => { if (event.key === 'Enter') connectManual(); });
+window.addEventListener('pagehide', () => { state.manualAuth = null; state.selectedAuthIndexes.clear(); state.proxyDrafts.clear(); invalidatePlan(); resetManualKeyInput(); });
+renderDisconnected('正在检测 CPA 会话…');
 refresh();
 </script>
 </body>

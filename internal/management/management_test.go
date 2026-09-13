@@ -117,7 +117,7 @@ func TestManagementServesStaticResourceThroughDynamicPath(t *testing.T) {
 	if !strings.Contains(body, "CPA 凭证守护") {
 		t.Fatalf("resource body does not contain the plugin title")
 	}
-	for _, marker := range []string{"lang=\"zh-CN\"", "color-scheme: dark", "代理管理", "应用预览", "测试代理", "cli-proxy-auth", "enc::v1::", "cli-proxy-api-webui::secure-storage", "Authorization", "management_key_required", "记住密码"} {
+	for _, marker := range []string{"lang=\"zh-CN\"", "color-scheme: dark", "代理管理", "应用预览", "测试代理", "连接 CPA", "CPA 管理密钥", "manual-key", "clear-manual", "credentials = 'omit'", "AbortController", "check-target", "跳到主要内容", "pagehide", "invalidatePlan", "previewVersion", "statusProjection", "cli-proxy-auth", "enc::v1::", "cli-proxy-api-webui::secure-storage", "Authorization", "management_key_required", "记住密码", "prefers-reduced-motion"} {
 		if !strings.Contains(body, marker) {
 			t.Fatalf("resource body missing Chinese/dark UI marker %q", marker)
 		}
@@ -125,6 +125,20 @@ func TestManagementServesStaticResourceThroughDynamicPath(t *testing.T) {
 	for _, forbidden := range []string{"lang=\"en\"", "color-scheme: light", "color-scheme: light dark", "light-theme", "theme-toggle"} {
 		if strings.Contains(body, forbidden) {
 			t.Fatalf("resource body contains forbidden light/English theme marker %q", forbidden)
+		}
+	}
+}
+
+func TestStaticResourceKeepsManualKeyMemoryOnly(t *testing.T) {
+	body := string(staticIndex)
+	for _, forbidden := range []string{"localStorage.setItem", "sessionStorage", "document.cookie", "manualAuthStorage"} {
+		if strings.Contains(body, forbidden) {
+			t.Fatalf("static resource contains manual credential persistence marker %q", forbidden)
+		}
+	}
+	for _, required := range []string{"state.manualAuth = {", "requestOptions.credentials = 'omit'", "headers.set('Authorization'", "state.manualAuth = null", "requestController", "sessionRequestVersion", "busyKind", "resetManualKeyInput", "input.type = 'password'", `id="manual-key" name="management-key" type="password" autocomplete="current-password"`} {
+		if !strings.Contains(body, required) {
+			t.Fatalf("static resource missing manual credential boundary %q", required)
 		}
 	}
 }
