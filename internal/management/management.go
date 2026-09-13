@@ -144,13 +144,13 @@ func (s *Service) RegisterManagement(_ context.Context, req pluginapi.Management
 	}
 	return pluginapi.ManagementRegistrationResponse{
 		Routes: []pluginapi.ManagementRoute{
-			{Method: http.MethodGet, Path: managementPrefix + "/status", Description: "Safe Credential Guard status projection.", Handler: handler},
-			{Method: http.MethodPost, Path: managementPrefix + "/proxy/preview", Description: "Validate a proxy batch before applying it.", Handler: handler},
-			{Method: http.MethodPost, Path: managementPrefix + "/proxy/apply", Description: "Apply a validated proxy plan.", Handler: handler},
-			{Method: http.MethodPost, Path: managementPrefix + "/proxy/test", Description: "Test token-free proxy connectivity.", Handler: handler},
-			{Method: http.MethodPost, Path: managementPrefix + "/recovery/scan", Description: "Scan due plugin-owned recovery records.", Handler: handler},
+			{Method: http.MethodGet, Path: managementPrefix + "/status", Description: "安全的凭证守护状态投影。", Handler: handler},
+			{Method: http.MethodPost, Path: managementPrefix + "/proxy/preview", Description: "应用前验证代理批次。", Handler: handler},
+			{Method: http.MethodPost, Path: managementPrefix + "/proxy/apply", Description: "应用已验证的代理计划。", Handler: handler},
+			{Method: http.MethodPost, Path: managementPrefix + "/proxy/test", Description: "测试无令牌代理连通性。", Handler: handler},
+			{Method: http.MethodPost, Path: managementPrefix + "/recovery/scan", Description: "扫描到期的插件所有权恢复记录。", Handler: handler},
 		},
-		Resources: []pluginapi.ResourceRoute{{Path: "/index.html", Menu: "CPA Credential Guard", Description: "Safe Credential Guard sidebar.", Handler: &resourceHandler{}}},
+		Resources: []pluginapi.ResourceRoute{{Path: "/index.html", Menu: "CPA 凭证守护", Description: "安全的凭证守护侧边栏。", Handler: &resourceHandler{}}},
 	}, nil
 }
 

@@ -32,11 +32,27 @@ func TestRegistrationDeclaresOnlyObservationAndManagement(t *testing.T) {
 }
 func TestRegistrationPublishesOwnRepositoryMetadata(t *testing.T) {
 	metadata := pluginRegistration().Metadata
+	if metadata.Name != "CPA 凭证守护" {
+		t.Fatalf("name=%q", metadata.Name)
+	}
+	if metadata.Author != "CPA 凭证守护贡献者" {
+		t.Fatalf("author=%q", metadata.Author)
+	}
 	if metadata.GitHubRepository != "https://github.com/Guciliang/cpa-credential-guard" {
 		t.Fatalf("repository=%q", metadata.GitHubRepository)
 	}
 	if metadata.Version == "" || strings.HasPrefix(metadata.Version, "v") {
 		t.Fatalf("version=%q must be a release version without the v prefix", metadata.Version)
+	}
+	for _, field := range metadata.ConfigFields {
+		if field.Description == "" {
+			t.Fatalf("config field %q has no description", field.Name)
+		}
+		for _, marker := range []string{"Enable ", "Persistent ", "Recovery ", "Initial ", "Maximum ", "Informational ", "Bounded ", "Consider ", "Opt into "} {
+			if strings.Contains(field.Description, marker) {
+				t.Fatalf("config field %q still has English description: %q", field.Name, field.Description)
+			}
+		}
 	}
 }
 

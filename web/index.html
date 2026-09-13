@@ -1,59 +1,112 @@
 <!doctype html>
-<html lang="en">
+<html lang="zh-CN">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>CPA Credential Guard</title>
+  <title>CPA 凭证守护</title>
   <style>
-    :root { color-scheme: light dark; font-family: system-ui, sans-serif; }
-    body { margin: 0; padding: 1.5rem; max-width: 1100px; margin-inline: auto; }
+    :root {
+      color-scheme: dark;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      --background: #0b1120;
+      --surface: #111827;
+      --surface-raised: #1f2937;
+      --border: #334155;
+      --text: #e5e7eb;
+      --muted: #94a3b8;
+      --accent: #60a5fa;
+      --accent-strong: #2563eb;
+      --danger: #f87171;
+    }
+    * { box-sizing: border-box; }
+    html { min-height: 100%; background: var(--background); }
+    body {
+      margin: 0;
+      padding: 1.5rem;
+      max-width: 1100px;
+      margin-inline: auto;
+      background: var(--background);
+      color: var(--text);
+      line-height: 1.5;
+    }
     button, input { font: inherit; }
+    button, input {
+      color: var(--text);
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: .4rem;
+    }
+    button {
+      padding: .5rem .8rem;
+      cursor: pointer;
+      background: var(--surface-raised);
+    }
+    button:hover:not(:disabled) { border-color: var(--accent); background: #26364d; }
+    button:disabled { cursor: not-allowed; opacity: .55; }
+    input { min-width: 0; padding: .5rem .6rem; }
+    input::placeholder { color: #64748b; }
+    button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+    h1, h2, h3 { color: #f8fafc; line-height: 1.25; }
     table { border-collapse: collapse; width: 100%; margin-top: 1rem; }
-    th, td { text-align: left; padding: .55rem; border-bottom: 1px solid #8885; }
-    .muted { opacity: .72; }
-    .error { color: #d44; }
+    th, td { text-align: left; vertical-align: top; padding: .55rem; border-bottom: 1px solid var(--border); }
+    th { color: #cbd5e1; background: var(--surface); }
+    td { background: #0f172a; }
+    pre {
+      overflow: auto;
+      padding: .8rem;
+      border: 1px solid var(--border);
+      border-radius: .4rem;
+      background: var(--surface);
+      color: #dbeafe;
+    }
+    .muted { color: var(--muted); }
+    .error { color: var(--danger); }
     .toolbar { display: flex; flex-wrap: wrap; gap: .6rem; align-items: end; }
     label { display: grid; gap: .25rem; }
     #message { min-height: 1.5rem; margin-top: .8rem; }
     #groups { display: flex; flex-wrap: wrap; gap: .4rem; }
-    .group { border: 1px solid #8885; border-radius: .35rem; padding: .35rem .55rem; }
+    .group { border: 1px solid var(--border); border-radius: .35rem; padding: .35rem .55rem; background: var(--surface); }
+    @media (max-width: 700px) {
+      body { padding: 1rem; }
+      table { display: block; overflow-x: auto; white-space: nowrap; }
+    }
   </style>
 </head>
 <body>
 <main>
-  <h1>CPA Credential Guard</h1>
-  <p class="muted">Codex quota ownership and redacted proxy administration. This page is a static shell; data is loaded from authenticated plugin routes.</p>
+  <h1>CPA 凭证守护</h1>
+  <p class="muted">Codex 额度所有权与脱敏代理管理。本页面是静态界面；数据通过经过认证的插件路由加载。</p>
   <section aria-labelledby="settings-heading">
-    <h2 id="settings-heading">Effective settings</h2>
-    <pre id="settings" aria-live="polite">Loading…</pre>
+    <h2 id="settings-heading">生效配置</h2>
+    <pre id="settings" aria-live="polite">加载中…</pre>
   </section>
   <section aria-labelledby="proxy-heading">
-    <h2 id="proxy-heading">Proxy management</h2>
+    <h2 id="proxy-heading">代理管理</h2>
     <div class="toolbar">
-      <label>Filter endpoint or fingerprint
-        <input id="filter" type="search" autocomplete="off" placeholder="proxy.example or sha256:">
+      <label>按端点或指纹筛选
+        <input id="filter" type="search" autocomplete="off" placeholder="proxy.example 或 sha256:">
       </label>
-      <label>Shared proxy URL (optional)
+      <label>共享代理 URL（可选）
         <input id="shared-proxy" type="url" autocomplete="off" placeholder="http://proxy.example:8080">
       </label>
-      <button id="preview" type="button">Preview selected changes</button>
-      <button id="apply" type="button" disabled>Apply preview</button>
-      <button id="refresh" type="button">Refresh</button>
+      <button id="preview" type="button">预览所选变更</button>
+      <button id="apply" type="button" disabled>应用预览</button>
+      <button id="refresh" type="button">刷新状态</button>
     </div>
     <div class="toolbar" style="margin-top:.7rem">
-      <label>Token-free connectivity test proxy
+      <label>无令牌连通性测试代理
         <input id="test-proxy" type="url" autocomplete="off" placeholder="socks5://proxy.example:1080">
       </label>
-      <button id="test" type="button">Test proxy</button>
+      <button id="test" type="button">测试代理</button>
     </div>
-    <p class="muted">Proxy URLs are redacted in results. Tests never use CPA credential tokens and target a fixed non-Codex endpoint.</p>
-    <h3>Proxy groups</h3>
-    <div id="groups" aria-live="polite"><span class="muted">Loading…</span></div>
+    <p class="muted">结果中的代理 URL 会被脱敏。测试不会使用 CPA 凭证令牌，并且只访问固定的非 Codex 端点。</p>
+    <h3>代理分组</h3>
+    <div id="groups" aria-live="polite"><span class="muted">加载中…</span></div>
     <div id="message" role="status" aria-live="polite"></div>
     <pre id="results" aria-live="polite"></pre>
     <table>
-      <thead><tr><th scope="col">Select</th><th scope="col">Credential</th><th scope="col">Disabled</th><th scope="col">Proxy endpoint / change</th><th scope="col">Ownership / probe</th></tr></thead>
-      <tbody id="credentials"><tr><td colspan="5">Loading…</td></tr></tbody>
+      <thead><tr><th scope="col">选择</th><th scope="col">凭证</th><th scope="col">已禁用</th><th scope="col">代理端点 / 变更</th><th scope="col">所有权 / 探测</th></tr></thead>
+      <tbody id="credentials"><tr><td colspan="5">加载中…</td></tr></tbody>
     </table>
   </section>
 </main>
@@ -73,10 +126,121 @@ const safeErrorCodes = new Set([
   'scan_incomplete', 'stale_preview', 'target_invalid', 'target_reachable_non_success', 'timeout',
   'connection_failed', 'canceled', 'unreachable'
 ]);
+const errorLabels = {
+  ambiguous_proxy_change: '代理变更不明确',
+  auth_index_required: '缺少凭证索引',
+  body_too_large: '请求内容过大',
+  codex_credential_not_found: '未找到 Codex 凭证',
+  content_type_required: '需要 JSON 内容类型',
+  credential_guard_disabled: '凭证守护未启用',
+  credential_unavailable: '凭证不可用',
+  duplicate_auth_index: '凭证索引重复',
+  empty_response: '响应为空',
+  host_unavailable: 'CPA Host API 不可用',
+  invalid_batch_size: '批量数量无效',
+  invalid_json: 'JSON 格式无效',
+  invalid_proxy: '代理地址无效',
+  invalid_proxy_batch: '代理批次无效',
+  invalid_response: '响应无效',
+  method_not_allowed: '不支持此请求方法',
+  not_found: '未找到请求资源',
+  plan_expired: '预览已过期',
+  plan_expired_or_unknown: '预览已过期或不存在',
+  plan_id_required: '缺少预览编号',
+  post_save_mismatch: '保存后校验不一致',
+  proxy_management_disabled: '代理管理未启用',
+  proxy_setup_failed: '代理建立失败',
+  proxy_url_required: '需要代理 URL',
+  reachable: '代理可连通',
+  recovery_disabled: '恢复功能未启用',
+  recovery_unavailable: '恢复功能不可用',
+  request_failed: '请求失败',
+  response_read_failed: '响应读取失败',
+  response_too_large: '响应过大',
+  revision_unavailable: '版本校验不可用',
+  scan_incomplete: '扫描未完成',
+  stale_preview: '预览已失效，凭证可能已被修改',
+  target_invalid: '测试目标无效',
+  target_reachable_non_success: '测试目标已连接但返回异常状态',
+  timeout: '请求超时',
+  connection_failed: '连接失败',
+  canceled: '请求已取消',
+  unreachable: '代理不可连通'
+};
+const actionLabels = { set: '设置代理', replace: '替换代理', clear: '清除代理' };
+const phaseLabels = {
+  owned_disabled: '插件已停用',
+  restore_pending_probe: '等待恢复探测',
+  probe_pending: '等待探测',
+  manual_review: '人工复核'
+};
+const reasonLabels = {
+  codex_usage_limit_reached: 'Codex 额度耗尽',
+  codex_quota_evidence: '检测到 Codex 额度证据',
+  codex_generic_rate_limit: '通用限流（已启用）',
+  oversized_failure: '响应过大',
+  bare_429: '未确认额度的 429',
+  invalid_failure: '失败信息无效',
+  non_quota_failure: '非额度错误',
+  recovery_error: '恢复错误',
+  host_error: 'Host API 错误',
+  unverifiable_pending_enable: '待恢复状态无法验证',
+  disable_revision_unavailable: '停用版本不可用',
+  post_enable_revision_unavailable: '恢复后版本不可用',
+  post_enable_guard_unavailable: '恢复后校验不可用',
+  redisable_failed: '重新停用失败',
+  redisable_revision_unavailable: '重新停用版本不可用',
+  ownership_guard_failed: '所有权校验失败',
+  probe_unavailable: '探测不可用',
+  probe_error: '探测错误',
+  health_client_unavailable: '健康检查不可用',
+  proxy_setup_failed: '代理建立失败',
+  request_failed: '请求失败',
+  timeout: '请求超时',
+  connection_failed: '连接失败',
+  canceled: '请求已取消',
+  empty_response: '空响应',
+  response_read_failed: '响应读取失败',
+  response_too_large: '响应过大',
+  auth_failed: '认证失败',
+  unexpected_status: '状态异常',
+  invalid_inventory: '额度清单无效',
+  quota_exhausted: '额度仍已耗尽',
+  save_failed: '保存失败',
+  revision_unavailable: '版本校验不可用',
+  stale_preview: '预览已失效',
+  post_save_mismatch: '保存后校验不一致',
+  unknown_phase: '未知恢复阶段'
+};
+const probeStatusLabels = { success: '成功', exhausted: '仍然耗尽', ambiguous: '结果不明确', error: '错误' };
+const configLabels = {
+  enabled: '插件已启用',
+  state_dir_configured: '已配置持久化状态目录',
+  recovery_enabled: '启用额度恢复',
+  scan_interval: '扫描间隔',
+  initial_backoff: '初始退避时间',
+  max_backoff: '最大退避时间',
+  probe_enabled: '启用额度探测',
+  probe_provider: '探测提供方',
+  probe_model_configured: '已配置探测模型',
+  probe_timeout: '探测超时',
+  quota_detection_enabled: '启用额度检测',
+  detect_http_429: '检测 HTTP 429',
+  classify_generic_rate_limit: '分类通用限流',
+  proxy_management_enabled: '启用代理管理'
+};
 const safeErrorCode = (value, fallback = 'request_failed') => {
   const code = text(value);
   return !code ? fallback : (safeErrorCodes.has(code) ? code : 'request_failed');
 };
+function errorLabel(value, fallback = '请求失败') {
+  const code = safeErrorCode(value, '');
+  return code ? (errorLabels[code] || '安全错误') : fallback;
+}
+function actionLabel(value) { return actionLabels[text(value)] || '代理变更'; }
+function phaseLabel(value) { return phaseLabels[text(value)] || '未知阶段'; }
+function reasonLabel(value) { return reasonLabels[text(value)] || '其他原因'; }
+function probeStatusLabel(value) { return probeStatusLabels[text(value)] || '结果不明确'; }
 function message(value, error) { const node = el('message'); node.textContent = text(value); node.className = error ? 'error' : ''; }
 async function api(path, options) {
   const response = await fetch('/v0/management/plugins/cpa-credential-guard' + path, Object.assign({ headers: { 'Content-Type': 'application/json' } }, options || {}));
@@ -84,10 +248,22 @@ async function api(path, options) {
   if (!response.ok) throw new Error(safeErrorCode(data.error));
   return data;
 }
+function localizedSettings(config) {
+  const output = {};
+  Object.entries(config || {}).forEach(([key, value]) => {
+    output[configLabels[key] || key] = typeof value === 'boolean' ? (value ? '是' : '否') : value;
+  });
+  return output;
+}
+function ownershipText(ownership) {
+  if (!ownership) return '非插件所有';
+  const probe = ownership.last_probe ? `；最近探测：${probeStatusLabel(ownership.last_probe.status)}` : '';
+  return `${phaseLabel(ownership.phase)} / ${reasonLabel(ownership.last_reason)}${probe}`;
+}
 function render(data) {
   state.status = data;
-  el('settings').textContent = JSON.stringify(data.config || {}, null, 2);
-  el('groups').innerHTML = (data.proxy_groups || []).map(group => `<span class="group">${escapeHTML(group.endpoint || group.fingerprint)} × ${escapeHTML(group.count)}</span>`).join('') || '<span class="muted">No configured proxy groups.</span>';
+  el('settings').textContent = JSON.stringify(localizedSettings(data.config || {}), null, 2);
+  el('groups').innerHTML = (data.proxy_groups || []).map(group => `<span class="group">${escapeHTML(group.endpoint || group.fingerprint || '未知端点')} × ${escapeHTML(group.count || 0)}</span>`).join('') || '<span class="muted">暂无已配置的代理分组。</span>';
   renderRows();
 }
 function renderRows() {
@@ -96,27 +272,86 @@ function renderRows() {
     const proxy = row.proxy || {};
     return !filter || [row.auth_index, row.file_name, proxy.endpoint, proxy.fingerprint].some(value => text(value).toLowerCase().includes(filter));
   }).map(row => {
-    const ownership = row.ownership ? `${row.ownership.phase} / ${row.ownership.last_reason || 'none'}` : 'not plugin-owned';
-    return `<tr><td><input type="checkbox" data-auth-index="${escapeHTML(row.auth_index)}" aria-label="Select ${escapeHTML(row.auth_index)}"></td><td>${escapeHTML(row.auth_index)}<br><span class="muted">${escapeHTML(row.file_name || '')}</span></td><td>${row.disabled ? 'yes' : 'no'}</td><td>${escapeHTML(row.proxy && row.proxy.endpoint || 'none')}<br><span class="muted">${escapeHTML(row.proxy && row.proxy.fingerprint || '')}</span><br><label class="muted">Per-credential proxy change <input type="url" data-proxy-input="${escapeHTML(row.auth_index)}" autocomplete="off" placeholder="blank clears unless shared value is set" aria-label="Proxy change for ${escapeHTML(row.auth_index)}"></label></td><td>${escapeHTML(ownership)}</td></tr>`;
+    const proxy = row.proxy || {};
+    const authIndex = text(row.auth_index);
+    const endpoint = text(proxy.endpoint) || '无';
+    const fingerprint = text(proxy.fingerprint);
+    return `<tr><td><input type="checkbox" data-auth-index="${escapeHTML(authIndex)}" aria-label="选择 ${escapeHTML(authIndex)}"></td><td>${escapeHTML(authIndex)}<br><span class="muted">${escapeHTML(row.file_name || '')}</span></td><td>${row.disabled ? '是' : '否'}</td><td>${escapeHTML(endpoint)}<br><span class="muted">${escapeHTML(fingerprint)}</span><br><label class="muted">设置此凭证的代理<input type="url" data-proxy-input="${escapeHTML(authIndex)}" autocomplete="off" placeholder="留空则清除（除非设置了共享值）" aria-label="为 ${escapeHTML(authIndex)} 设置代理"></label></td><td>${escapeHTML(ownershipText(row.ownership))}</td></tr>`;
   }).join('');
-  el('credentials').innerHTML = rows || '<tr><td colspan="5">No matching Codex credentials.</td></tr>';
+  el('credentials').innerHTML = rows || '<tr><td colspan="5">没有匹配的 Codex 凭证。</td></tr>';
+}
+function mutationResults(items, includeStatus) {
+  return (items || []).map(item => {
+    const result = {
+      '凭证索引': text(item.auth_index),
+      '操作': actionLabel(item.action),
+      '原代理端点': text(item.old_endpoint) || '无',
+      '新代理端点': text(item.new_endpoint) || '无'
+    };
+    if (includeStatus) result['结果'] = item.ok ? '成功' : '失败';
+    result['错误'] = item.error_code ? errorLabel(item.error_code) : '无';
+    return result;
+  });
+}
+function testResults(items) {
+  return (items || []).map(item => ({
+    '代理端点': text(item.endpoint) || '脱敏端点',
+    '结果': item.ok ? '可连通' : '不可连通',
+    'HTTP 状态码': item.http_status || '无',
+    '延迟': item.latency_ms ? `${item.latency_ms} 毫秒` : '无',
+    '错误': item.error_code ? errorLabel(item.error_code) : '无'
+  }));
 }
 function escapeHTML(value) { return text(value).replace(/[&<>"']/g, c => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c])); }
-async function refresh() { try { render(await api('/status')); message('Status refreshed.'); } catch (error) { message(error.message || 'Unable to load status.', true); } }
+async function refresh() {
+  try { render(await api('/status')); message('状态已刷新。'); }
+  catch (error) { message(errorLabel(error.message, '无法加载状态。'), true); }
+}
 async function preview() {
   const selected = [...document.querySelectorAll('[data-auth-index]:checked')].map(input => input.dataset.authIndex);
-  if (!selected.length) { message('Select at least one credential.', true); return; }
+  if (!selected.length) { message('请至少选择一个凭证。', true); return; }
   const shared = el('shared-proxy').value.trim();
   const changes = selected.map(authIndex => {
     const per = [...document.querySelectorAll('[data-proxy-input]')].find(input => input.dataset.proxyInput === authIndex);
     const raw = shared || (per && per.value.trim()) || '';
     return raw ? { auth_index: authIndex, proxy_url: raw } : { auth_index: authIndex, clear: true };
   });
-  try { const result = await api('/proxy/preview', { method: 'POST', body: JSON.stringify({ changes }) }); state.planId = result.plan_id || ''; el('apply').disabled = !state.planId; message(`${(result.items || []).length} item(s) previewed. Review redacted endpoints before applying.`); el('results').textContent = JSON.stringify((result.items || []).map(item => ({ auth_index: item.auth_index, action: item.action, old_endpoint: item.old_endpoint, new_endpoint: item.new_endpoint, error_code: safeErrorCode(item.error_code, '') })), null, 2); } catch (error) { message(error.message || 'Preview failed.', true); }
+  try {
+    const result = await api('/proxy/preview', { method: 'POST', body: JSON.stringify({ changes }) });
+    state.planId = result.plan_id || '';
+    el('apply').disabled = !state.planId;
+    message(`${(result.items || []).length} 项变更已生成预览。请在应用前检查已脱敏的端点。`);
+    el('results').textContent = JSON.stringify(mutationResults(result.items, false), null, 2);
+  } catch (error) { message(`预览失败：${errorLabel(error.message)}`, true); }
 }
-async function apply() { if (!state.planId) return; try { const result = await api('/proxy/apply', { method: 'POST', body: JSON.stringify({ plan_id: state.planId }) }); state.planId = ''; el('apply').disabled = true; const failed = (result.items || []).filter(item => !item.ok).length; el('results').textContent = JSON.stringify((result.items || []).map(item => ({ auth_index: item.auth_index, action: item.action, old_endpoint: item.old_endpoint, new_endpoint: item.new_endpoint, ok: item.ok, error_code: safeErrorCode(item.error_code, '') })), null, 2); message(failed ? `${failed} item(s) failed; remaining items continued.` : 'Proxy changes applied.'); await refresh(); } catch (error) { message(error.message || 'Apply failed.', true); } }
-async function testProxy() { const raw = el('test-proxy').value.trim(); if (!raw) { message('Enter a proxy URL to test.', true); return; } try { const result = await api('/proxy/test', { method: 'POST', body: JSON.stringify({ proxies: [raw] }) }); const item = (result.items || [])[0] || {}; message(item.ok ? `Reachable: ${item.endpoint || 'redacted endpoint'} (${item.latency_ms || 0} ms)` : `Proxy test failed: ${safeErrorCode(item.error_code, 'unreachable')}`, !item.ok); } catch (error) { message(error.message || 'Proxy test failed.', true); } }
-el('refresh').addEventListener('click', refresh); el('preview').addEventListener('click', preview); el('apply').addEventListener('click', apply); el('test').addEventListener('click', testProxy); el('filter').addEventListener('input', renderRows); refresh();
+async function apply() {
+  if (!state.planId) return;
+  try {
+    const result = await api('/proxy/apply', { method: 'POST', body: JSON.stringify({ plan_id: state.planId }) });
+    state.planId = '';
+    el('apply').disabled = true;
+    const failed = (result.items || []).filter(item => !item.ok).length;
+    el('results').textContent = JSON.stringify(mutationResults(result.items, true), null, 2);
+    message(failed ? `${failed} 项失败；其余项目已继续处理。` : '代理变更已应用。', Boolean(failed));
+    await refresh();
+  } catch (error) { message(`应用失败：${errorLabel(error.message)}`, true); }
+}
+async function testProxy() {
+  const raw = el('test-proxy').value.trim();
+  if (!raw) { message('请输入要测试的代理 URL。', true); return; }
+  try {
+    const result = await api('/proxy/test', { method: 'POST', body: JSON.stringify({ proxies: [raw] }) });
+    const item = (result.items || [])[0] || {};
+    el('results').textContent = JSON.stringify(testResults(result.items), null, 2);
+    message(item.ok ? `代理可连通：${item.endpoint || '脱敏端点'}（${item.latency_ms || 0} 毫秒）` : `代理测试失败：${errorLabel(item.error_code, '代理不可连通')}`, !item.ok);
+  } catch (error) { message(`代理测试失败：${errorLabel(error.message)}`, true); }
+}
+el('refresh').addEventListener('click', refresh);
+el('preview').addEventListener('click', preview);
+el('apply').addEventListener('click', apply);
+el('test').addEventListener('click', testProxy);
+el('filter').addEventListener('input', renderRows);
+refresh();
 </script>
 </body>
 </html>

@@ -257,10 +257,25 @@ var (
 )
 
 func pluginRegistration() registration {
-	return registration{SchemaVersion: pluginabi.SchemaVersion, Metadata: pluginapi.Metadata{Name: "CPA Credential Guard", Version: pluginVersion, Author: "CPA Credential Guard contributors", GitHubRepository: pluginRepository, ConfigFields: configFields()}, Capabilities: registrationCapabilities{UsagePlugin: true, ManagementAPI: true}}
+	return registration{SchemaVersion: pluginabi.SchemaVersion, Metadata: pluginapi.Metadata{Name: "CPA 凭证守护", Version: pluginVersion, Author: "CPA 凭证守护贡献者", GitHubRepository: pluginRepository, ConfigFields: configFields()}, Capabilities: registrationCapabilities{UsagePlugin: true, ManagementAPI: true}}
 }
 func configFields() []pluginapi.ConfigField {
-	return []pluginapi.ConfigField{{Name: "enabled", Type: pluginapi.ConfigFieldTypeBoolean, Description: "Enable Codex quota observation and guarded recovery."}, {Name: "state_dir", Type: pluginapi.ConfigFieldTypeString, Description: "Persistent plugin state directory; never left empty."}, {Name: "recovery_enabled", Type: pluginapi.ConfigFieldTypeBoolean, Description: "Enable periodic recovery scans."}, {Name: "scan_interval", Type: pluginapi.ConfigFieldTypeString, Description: "Recovery scan interval; minimum ten minutes."}, {Name: "initial_backoff", Type: pluginapi.ConfigFieldTypeString, Description: "Initial bounded recovery backoff."}, {Name: "max_backoff", Type: pluginapi.ConfigFieldTypeString, Description: "Maximum bounded recovery backoff."}, {Name: "probe_enabled", Type: pluginapi.ConfigFieldTypeBoolean, Description: "Enable exact-credential Codex quota inventory probes."}, {Name: "probe_provider", Type: pluginapi.ConfigFieldTypeEnum, EnumValues: []string{"codex"}, Description: "MVP recovery provider."}, {Name: "probe_model", Type: pluginapi.ConfigFieldTypeString, Description: "Informational forward-compatible model; not sent by the MVP probe."}, {Name: "probe_timeout", Type: pluginapi.ConfigFieldTypeString, Description: "Bounded health probe timeout."}, {Name: "quota_detection_enabled", Type: pluginapi.ConfigFieldTypeBoolean, Description: "Enable conservative completed-usage classification."}, {Name: "detect_http_429", Type: pluginapi.ConfigFieldTypeBoolean, Description: "Consider HTTP 429 only with explicit quota evidence by default."}, {Name: "classify_generic_rate_limit", Type: pluginapi.ConfigFieldTypeBoolean, Description: "Opt into generic rate-limit classification with higher false-positive risk."}, {Name: "proxy_management_enabled", Type: pluginapi.ConfigFieldTypeBoolean, Description: "Enable proxy preview, mutation, and token-free tests."}}
+	return []pluginapi.ConfigField{
+		{Name: "enabled", Type: pluginapi.ConfigFieldTypeBoolean, Description: "启用 Codex 额度观察和受保护的恢复。"},
+		{Name: "state_dir", Type: pluginapi.ConfigFieldTypeString, Description: "持久化插件状态目录；不能为空。"},
+		{Name: "recovery_enabled", Type: pluginapi.ConfigFieldTypeBoolean, Description: "启用周期性恢复扫描。"},
+		{Name: "scan_interval", Type: pluginapi.ConfigFieldTypeString, Description: "恢复扫描间隔；最短为十分钟。"},
+		{Name: "initial_backoff", Type: pluginapi.ConfigFieldTypeString, Description: "有上限的初始恢复退避时间。"},
+		{Name: "max_backoff", Type: pluginapi.ConfigFieldTypeString, Description: "有上限的最大恢复退避时间。"},
+		{Name: "probe_enabled", Type: pluginapi.ConfigFieldTypeBoolean, Description: "启用精确凭证的 Codex 额度清单探测。"},
+		{Name: "probe_provider", Type: pluginapi.ConfigFieldTypeEnum, EnumValues: []string{"codex"}, Description: "MVP 恢复提供方。"},
+		{Name: "probe_model", Type: pluginapi.ConfigFieldTypeString, Description: "用于未来兼容的提示模型；MVP 探测不会发送该字段。"},
+		{Name: "probe_timeout", Type: pluginapi.ConfigFieldTypeString, Description: "有上限的健康探测超时时间。"},
+		{Name: "quota_detection_enabled", Type: pluginapi.ConfigFieldTypeBoolean, Description: "启用保守的已完成请求额度分类。"},
+		{Name: "detect_http_429", Type: pluginapi.ConfigFieldTypeBoolean, Description: "默认仅在存在明确额度证据时识别 HTTP 429。"},
+		{Name: "classify_generic_rate_limit", Type: pluginapi.ConfigFieldTypeBoolean, Description: "选择启用通用限流分类，但误判风险更高。"},
+		{Name: "proxy_management_enabled", Type: pluginapi.ConfigFieldTypeBoolean, Description: "启用代理预览、修改和无令牌测试。"},
+	}
 }
 
 func hostCallback(ctx context.Context, method string, payload []byte) (json.RawMessage, error) {

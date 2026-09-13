@@ -1,10 +1,12 @@
 package management
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
+	"os"
 	"strings"
 	"sync"
 	"testing"
@@ -111,8 +113,29 @@ func TestManagementServesStaticResourceThroughDynamicPath(t *testing.T) {
 	if got := resp.Headers.Get("Content-Type"); got != "text/html; charset=utf-8" {
 		t.Fatalf("content type=%q", got)
 	}
-	if !strings.Contains(string(resp.Body), "CPA Credential Guard") {
+	body := string(resp.Body)
+	if !strings.Contains(body, "CPA 凭证守护") {
 		t.Fatalf("resource body does not contain the plugin title")
+	}
+	for _, marker := range []string{"lang=\"zh-CN\"", "color-scheme: dark", "代理管理", "应用预览", "测试代理"} {
+		if !strings.Contains(body, marker) {
+			t.Fatalf("resource body missing Chinese/dark UI marker %q", marker)
+		}
+	}
+	for _, forbidden := range []string{"lang=\"en\"", "color-scheme: light", "color-scheme: light dark", "light-theme", "theme-toggle"} {
+		if strings.Contains(body, forbidden) {
+			t.Fatalf("resource body contains forbidden light/English theme marker %q", forbidden)
+		}
+	}
+}
+
+func TestStaticResourceCopiesStayInSync(t *testing.T) {
+	rootPage, errRead := os.ReadFile("../../web/index.html")
+	if errRead != nil {
+		t.Fatal(errRead)
+	}
+	if !bytes.Equal(rootPage, staticIndex) {
+		t.Fatal("root web/index.html differs from the embedded management resource")
 	}
 }
 
