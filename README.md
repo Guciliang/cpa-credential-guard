@@ -19,14 +19,14 @@ make build
 
 本地编译用于开发和隔离的 CPA 测试。正常安装使用 GitHub Actions 构建与目标平台匹配的动态库，并发布 CPA 插件商店所需的 Release 资产。
 
-发布工作流由类似 `v0.1.0` 的 Git tag 触发，并生成以下文件：
+发布工作流由类似 `v0.1.5` 的 Git tag 触发，并生成以下文件：
 
 ```text
-cpa-credential-guard_0.1.0_linux_amd64.zip
-cpa-credential-guard_0.1.0_linux_arm64.zip
-cpa-credential-guard_0.1.0_darwin_amd64.zip
-cpa-credential-guard_0.1.0_darwin_arm64.zip
-cpa-credential-guard_0.1.0_windows_amd64.zip
+cpa-credential-guard_0.1.5_linux_amd64.zip
+cpa-credential-guard_0.1.5_linux_arm64.zip
+cpa-credential-guard_0.1.5_darwin_amd64.zip
+cpa-credential-guard_0.1.5_darwin_arm64.zip
+cpa-credential-guard_0.1.5_windows_amd64.zip
 checksums.txt
 ```
 
@@ -46,13 +46,15 @@ https://raw.githubusercontent.com/Guciliang/cpa-credential-guard/main/registry.j
 
 该输入框每行接受一个插件商店 registry/manifest 地址。manifest 中包含上面的仓库元数据，CPA 会根据这些信息从仓库解析最新的 GitHub Release。如果你的 CPA 版本支持单独添加插件仓库，请将 GitHub 仓库地址填写到对应的“插件仓库”输入位置，而不是“插件商店来源”输入框。
 
+插件页面的动态数据接口受 CPA 管理权限保护。页面会在同源的 `cli-proxy-auth` 会话中读取 CPA 已保存的管理登录状态，并且只在内存中使用管理密钥发送 `Authorization: Bearer ...` 请求；插件不会显示、记录或持久化该密钥，也不会使用凭证令牌或 Cookie 代替管理密钥。如果页面提示未读取到管理密钥，请先返回 CPA 管理中心登录，启用“记住密码”，再刷新插件页面。
+
 如果 CPA 界面只显示 registry 中的插件，则还需要将本仓库登记到官方 CPA 插件商店 registry。官方商店只维护 registry 元数据，插件二进制文件仍然存放在本仓库的 GitHub Release 中。
 
 发布新版本时，在工作流已经提交后执行：
 
 ```sh
-git tag v0.1.0
-git push origin v0.1.0
+git tag v0.1.5
+git push origin v0.1.5
 ```
 
 tag 和 push 命令会改变远程仓库，必须由仓库所有者执行。Docker 部署必须使用与容器操作系统和 CPU 架构匹配的构建产物，并且 `state_dir` 必须位于已持久化的 CPA 插件目录中。

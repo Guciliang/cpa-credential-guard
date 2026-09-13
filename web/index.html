@@ -59,8 +59,9 @@
       background: var(--surface);
       color: #dbeafe;
     }
-    .muted { color: var(--muted); }
-    .error { color: var(--danger); }
+    .auth-notice { margin: 0 0 1rem; padding: .8rem 1rem; border: 1px solid #b45309; border-radius: .4rem; background: #451a03; color: #fed7aa; }
+    .auth-notice h2 { margin: 0 0 .3rem; color: #fed7aa; font-size: 1rem; }
+    .auth-notice p { margin: 0; }
     .toolbar { display: flex; flex-wrap: wrap; gap: .6rem; align-items: end; }
     label { display: grid; gap: .25rem; }
     #message { min-height: 1.5rem; margin-top: .8rem; }
@@ -76,6 +77,10 @@
 <main>
   <h1>CPA 凭证守护</h1>
   <p class="muted">Codex 额度所有权与脱敏代理管理。本页面是静态界面；数据通过经过认证的插件路由加载。</p>
+  <section id="auth-notice" class="auth-notice" hidden aria-labelledby="auth-notice-heading">
+    <h2 id="auth-notice-heading">需要 CPA 管理权限</h2>
+    <p id="auth-notice-text">请返回 CPA 管理中心登录，启用“记住密码”，然后刷新本页面。</p>
+  </section>
   <section aria-labelledby="settings-heading">
     <h2 id="settings-heading">生效配置</h2>
     <pre id="settings" aria-live="polite">加载中…</pre>
@@ -124,7 +129,7 @@ const safeErrorCodes = new Set([
   'proxy_setup_failed', 'proxy_url_required', 'reachable', 'recovery_disabled', 'recovery_unavailable',
   'request_failed', 'response_read_failed', 'response_too_large', 'revision_unavailable',
   'scan_incomplete', 'stale_preview', 'target_invalid', 'target_reachable_non_success', 'timeout',
-  'connection_failed', 'canceled', 'unreachable'
+  'connection_failed', 'canceled', 'unreachable', 'management_key_required', 'unauthorized', 'forbidden'
 ]);
 const errorLabels = {
   ambiguous_proxy_change: '代理变更不明确',
@@ -165,7 +170,10 @@ const errorLabels = {
   timeout: '请求超时',
   connection_failed: '连接失败',
   canceled: '请求已取消',
-  unreachable: '代理不可连通'
+  unreachable: '代理不可连通',
+  management_key_required: '未读取到 CPA 管理密钥，请先登录 CPA 管理中心并启用“记住密码”',
+  unauthorized: 'CPA 管理密钥无效或已过期，请重新登录管理中心',
+  forbidden: 'CPA 拒绝了管理请求，请检查管理权限'
 };
 const actionLabels = { set: '设置代理', replace: '替换代理', clear: '清除代理' };
 const phaseLabels = {
@@ -229,9 +237,54 @@ const configLabels = {
   classify_generic_rate_limit: '分类通用限流',
   proxy_management_enabled: '启用代理管理'
 };
+const panelAuthStorageKey = 'cli-proxy-auth';
+const panelAuthPrefix = 'enc::v1::';
+const panelAuthSalt = 'cli-proxy-api-webui::secure-storage';
+const stringValue = value => typeof value === 'string' ? value.trim() : '';
+function decodePanelAuth(value) {
+  if (!value.startsWith(panelAuthPrefix)) return value;
+  try {
+    const binary = atob(value.slice(panelAuthPrefix.length));
+    const encrypted = Uint8Array.from(binary, character => character.charCodeAt(0));
+    const key = new TextEncoder().encode(`${panelAuthSalt}|${window.location.host}|${navigator.userAgent}`);
+    const decoded = new Uint8Array(encrypted.length);
+    for (let index = 0; index < encrypted.length; index += 1) decoded[index] = encrypted[index] ^ key[index % key.length];
+    return new TextDecoder().decode(decoded);
+  } catch (_) {
+    return '';
+  }
+}
+function normalizeManagementBase(value) {
+  const trimmed = stringValue(value).replace(/\/+$/, '');
+  if (!trimmed || trimmed === window.location.origin) return '';
+  return /^https?:\/\//i.test(trimmed) ? trimmed : `http://${trimmed}`;
+}
+function managementSession() {
+  try {
+    const stored = window.localStorage.getItem(panelAuthStorageKey);
+    if (!stored) return null;
+    const decoded = JSON.parse(decodePanelAuth(stored));
+    const root = decoded && typeof decoded === 'object' ? decoded : {};
+    const savedState = root.state && typeof root.state === 'object' ? root.state : root;
+    const managementKey = stringValue(savedState.managementKey);
+    if (!managementKey) return null;
+    return { baseURL: normalizeManagementBase(savedState.apiBase), managementKey };
+  } catch (_) {
+    return null;
+  }
+}
+function setAuthNotice(code) {
+  const notice = el('auth-notice');
+  const noticeText = el('auth-notice-text');
+  if (!notice || !noticeText) return;
+  notice.hidden = !code;
+  if (code === 'management_key_required') noticeText.textContent = '请返回 CPA 管理中心登录，启用“记住密码”，然后刷新本页面。';
+  else if (code === 'unauthorized') noticeText.textContent = 'CPA 管理密钥无效或已过期，请返回管理中心重新登录并刷新本页面。';
+  else if (code === 'forbidden') noticeText.textContent = 'CPA 拒绝了管理请求，请确认当前账号具有管理权限。';
+}
 const safeErrorCode = (value, fallback = 'request_failed') => {
   const code = text(value);
-  return !code ? fallback : (safeErrorCodes.has(code) ? code : 'request_failed');
+  return !code ? fallback : (safeErrorCodes.has(code) ? code : fallback);
 };
 function errorLabel(value, fallback = '请求失败') {
   const code = safeErrorCode(value, '');
@@ -243,9 +296,29 @@ function reasonLabel(value) { return reasonLabels[text(value)] || '其他原因'
 function probeStatusLabel(value) { return probeStatusLabels[text(value)] || '结果不明确'; }
 function message(value, error) { const node = el('message'); node.textContent = text(value); node.className = error ? 'error' : ''; }
 async function api(path, options) {
-  const response = await fetch('/v0/management/plugins/cpa-credential-guard' + path, Object.assign({ headers: { 'Content-Type': 'application/json' } }, options || {}));
-  const data = await response.json().catch(() => ({ error: 'invalid_response' }));
-  if (!response.ok) throw new Error(safeErrorCode(data.error));
+  const session = managementSession();
+  if (!session) {
+    setAuthNotice('management_key_required');
+    throw new Error('management_key_required');
+  }
+  const requestOptions = Object.assign({}, options || {});
+  requestOptions.credentials = 'omit';
+  const headers = new Headers(requestOptions.headers || {});
+  headers.set('Accept', 'application/json');
+  headers.set('Content-Type', 'application/json');
+  headers.delete('Cookie');
+  headers.delete('Proxy-Authorization');
+  headers.set('Authorization', `Bearer ${session.managementKey}`);
+  requestOptions.headers = headers;
+  const response = await fetch(`${session.baseURL}/v0/management/plugins/cpa-credential-guard${path}`, requestOptions);
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    const fallback = response.status === 401 ? 'unauthorized' : (response.status === 403 ? 'forbidden' : 'request_failed');
+    const code = safeErrorCode(data.error, fallback);
+    if (code === 'unauthorized' || code === 'forbidden') setAuthNotice(code);
+    throw new Error(code);
+  }
+  setAuthNotice('');
   return data;
 }
 function localizedSettings(config) {

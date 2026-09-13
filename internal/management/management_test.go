@@ -117,7 +117,7 @@ func TestManagementServesStaticResourceThroughDynamicPath(t *testing.T) {
 	if !strings.Contains(body, "CPA 凭证守护") {
 		t.Fatalf("resource body does not contain the plugin title")
 	}
-	for _, marker := range []string{"lang=\"zh-CN\"", "color-scheme: dark", "代理管理", "应用预览", "测试代理"} {
+	for _, marker := range []string{"lang=\"zh-CN\"", "color-scheme: dark", "代理管理", "应用预览", "测试代理", "cli-proxy-auth", "enc::v1::", "cli-proxy-api-webui::secure-storage", "Authorization", "management_key_required", "记住密码"} {
 		if !strings.Contains(body, marker) {
 			t.Fatalf("resource body missing Chinese/dark UI marker %q", marker)
 		}
@@ -290,7 +290,7 @@ func TestStaticResourceContainsNoDynamicCredentialData(t *testing.T) {
 		t.Fatal(err)
 	}
 	body := string(resp.Body)
-	for _, secret := range []string{"access_token", "proxy-password", "Authorization"} {
+	for _, secret := range []string{"access_token", "proxy-password", "Bearer test-management-key", "management-secret"} {
 		if strings.Contains(body, secret) {
 			t.Fatalf("resource leaked %q", secret)
 		}
