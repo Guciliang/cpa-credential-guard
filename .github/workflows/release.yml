@@ -81,11 +81,11 @@ jobs:
           - goos: darwin
             goarch: amd64
             ext: dylib
-            runner: macos-13
+            runner: macos-15-intel
           - goos: darwin
             goarch: arm64
             ext: dylib
-            runner: macos-14
+            runner: macos-15
           - goos: windows
             goarch: amd64
             ext: dll
