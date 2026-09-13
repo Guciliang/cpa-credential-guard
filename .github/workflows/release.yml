@@ -1,0 +1,207 @@
+name: Release plugin artifacts
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+env:
+  PLUGIN_ID: cpa-credential-guard
+
+jobs:
+  prepare:
+    name: Prepare release metadata
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - name: Validate release tag
+        id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag="${GITHUB_REF_NAME}"
+          if [[ ! "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "release tags must use v<major>.<minor>.<patch>, got: $tag" >&2
+            exit 1
+          fi
+          echo "version=${tag#v}" >> "$GITHUB_OUTPUT"
+
+  quality:
+    name: Test and vet
+    needs: prepare
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Format check
+        shell: bash
+        run: |
+          set -euo pipefail
+          files=$(find . -name '*.go' -not -path './.git/*' -not -path './bin/*')
+          test -z "$(gofmt -l $files)"
+
+      - name: Test
+        run: go test ./...
+
+      - name: Race test
+        run: go test -race ./...
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Verify modules
+        run: go mod verify
+
+  build:
+    name: Build ${{ matrix.goos }}/${{ matrix.goarch }}
+    needs: [prepare, quality]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - goos: linux
+            goarch: amd64
+            ext: so
+            runner: ubuntu-latest
+          - goos: linux
+            goarch: arm64
+            ext: so
+            runner: ubuntu-24.04-arm
+          - goos: darwin
+            goarch: amd64
+            ext: dylib
+            runner: macos-13
+          - goos: darwin
+            goarch: arm64
+            ext: dylib
+            runner: macos-14
+          - goos: windows
+            goarch: amd64
+            ext: dll
+            runner: windows-latest
+    runs-on: ${{ matrix.runner }}
+    env:
+      VERSION: ${{ needs.prepare.outputs.version }}
+      GOOS: ${{ matrix.goos }}
+      GOARCH: ${{ matrix.goarch }}
+      EXT: ${{ matrix.ext }}
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Build and package on Unix
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p package dist
+          CGO_ENABLED=1 go build -buildmode=c-shared \
+            -ldflags "-X main.pluginVersion=${VERSION}" \
+            -o "package/${PLUGIN_ID}.${EXT}" .
+          test -f "package/${PLUGIN_ID}.${EXT}"
+          asset="${PLUGIN_ID}_${VERSION}_${GOOS}_${GOARCH}.zip"
+          python3 - "$asset" <<'PY'
+          import os
+          import sys
+          import zipfile
+
+          asset = sys.argv[1]
+          library = f"{os.environ['PLUGIN_ID']}.{os.environ['EXT']}"
+          with zipfile.ZipFile(os.path.join("dist", asset), "w", zipfile.ZIP_DEFLATED) as archive:
+              archive.write(os.path.join("package", library), library)
+          PY
+
+      - name: Build and package on Windows
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          New-Item -ItemType Directory -Force package, dist | Out-Null
+          $output = "package\$env:PLUGIN_ID.$env:EXT"
+          go build -buildmode=c-shared `
+            -ldflags "-X main.pluginVersion=$env:VERSION" `
+            -o $output .
+          if (-not (Test-Path $output)) { throw "dynamic library was not built" }
+          $asset = "$env:PLUGIN_ID`_$env:VERSION`_$env:GOOS`_$env:GOARCH.zip"
+          Compress-Archive -Path $output -DestinationPath "dist\$asset"
+
+      - name: Validate zip layout
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          set -euo pipefail
+          archive=$(find dist -name '*.zip' -print -quit)
+          test -n "$archive"
+          members=$(unzip -Z1 "$archive")
+          test "$(printf '%s\n' "$members" | wc -l)" -eq 1
+          printf '%s\n' "$members" | grep -Fx "${PLUGIN_ID}.${EXT}"
+
+      - name: Validate zip layout on Windows
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $archive = Get-ChildItem dist\*.zip | Select-Object -First 1
+          if ($null -eq $archive) { throw "zip artifact was not created" }
+          $members = (tar -tf $archive.FullName) | Where-Object { $_ -and $_ -notmatch '/$' }
+          if ($members.Count -ne 1 -or $members[0] -ne "$env:PLUGIN_ID.$env:EXT") {
+            throw "unexpected zip layout: $($members -join ', ')"
+          }
+
+      - name: Upload platform artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: dist/*.zip
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    name: Publish GitHub Release
+    needs: [prepare, build]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download platform artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: release-*
+          path: dist
+          merge-multiple: true
+
+      - name: Create checksums
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd dist
+          test "$(find . -maxdepth 1 -name '*.zip' | wc -l)" -ge 1
+          sha256sum *.zip > checksums.txt
+          cat checksums.txt
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh release create "$GITHUB_REF_NAME" dist/* \
+            --verify-tag \
+            --title "$GITHUB_REF_NAME" \
+            --generate-notes

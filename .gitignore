@@ -1,0 +1,10 @@
+/bin/
+/.cpa-integration-test/
+/*.pid
+
+# Local agent and Trellis session metadata; never publish these with the plugin.
+/.agents/
+/.pi/
+/.trash/
+/.trellis/
+/AGENTS.md
