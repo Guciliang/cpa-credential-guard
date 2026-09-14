@@ -45,8 +45,8 @@
       color: var(--text);
       line-height: 1.5;
     }
-    button, input { font: inherit; touch-action: manipulation; }
-    button, input {
+    button, input, select { font: inherit; touch-action: manipulation; }
+    button, input, select {
       min-height: 44px;
       border: 1px solid var(--border);
       border-radius: .55rem;
@@ -67,9 +67,10 @@
     button.primary:hover:not(:disabled) { background: #3b82f6; }
     button.subtle { background: transparent; }
     input { width: 100%; padding: .55rem .7rem; }
+    select { width: 100%; min-height: 44px; padding: .55rem .7rem; border: 1px solid var(--border); border-radius: .55rem; color: var(--text); background: var(--surface); }
     input::placeholder { color: var(--placeholder); }
     input:invalid:not(:placeholder-shown) { border-color: var(--warning); }
-    button:focus-visible, input:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
+    button:focus-visible, input:focus-visible, select:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
     h1, h2, h3, p { margin-top: 0; }
     h1, h2, h3 { color: var(--text); line-height: 1.25; }
     h1 { margin-bottom: .7rem; font-size: clamp(1.8rem, 4vw, 2.7rem); letter-spacing: -.025em; }
@@ -83,6 +84,7 @@
     .status-dot { width: .6rem; height: .6rem; border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 .25rem rgb(96 165 250 / .16); }
     .hero p { max-width: 72ch; margin-bottom: 0; color: var(--muted); }
     .panel { min-width: 0; margin-bottom: 1rem; padding: clamp(1rem, 2vw, 1.35rem); border: 1px solid var(--border); border-radius: var(--radius); background: rgb(17 24 39 / .94); box-shadow: 0 8px 24px rgb(0 0 0 / .11); }
+    .panel + .panel { margin-top: 1.25rem; }
     .panel-heading { margin-bottom: 1rem; }
     .panel-heading p, .section-heading p { margin-bottom: 0; color: var(--muted); font-size: .9rem; }
     .auth-panel { border-color: #36527a; background: linear-gradient(135deg, rgb(20 38 65 / .78), rgb(17 24 39 / .96)); }
@@ -116,14 +118,31 @@
     .metric-value { display: block; margin: .25rem 0; color: var(--text); font-size: 1.6rem; font-variant-numeric: tabular-nums; }
     .metric-detail { display: block; overflow-wrap: anywhere; color: var(--muted); font-size: .78rem; }
     .settings-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .65rem; }
-    .setting-item { min-width: 0; padding: .75rem; border: 1px solid var(--border); border-radius: .55rem; background: var(--background-raised); }
-    .setting-label { display: block; margin-bottom: .2rem; color: var(--muted); font-size: .78rem; }
+    .setting-item, .setting-switch { min-width: 0; padding: .75rem; border: 1px solid var(--border); border-radius: .55rem; background: var(--background-raised); }
+    .setting-item { display: grid; gap: .2rem; }
+    .setting-label { display: block; color: var(--muted); font-size: .78rem; }
     .setting-value { display: block; overflow-wrap: anywhere; color: var(--text-soft); font-size: .9rem; font-weight: 650; }
-    .workspace-grid { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(300px, .65fr); gap: 1rem; align-items: start; }
-    .workspace-grid .panel { height: 100%; }
-    .toolbar { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: .75rem; align-items: end; }
-    .toolbar-actions { display: flex; flex-wrap: wrap; gap: .5rem; margin-top: .85rem; }
+    .setting-switch { display: flex; align-items: center; justify-content: space-between; gap: .7rem; cursor: pointer; }
+    .setting-switch-copy { min-width: 0; }
+    .setting-switch .setting-label { margin-bottom: .2rem; }
+    .setting-switch input { position: absolute; width: 1px; height: 1px; opacity: 0; }
+    .switch-track { position: relative; flex: 0 0 auto; width: 2.75rem; height: 1.55rem; border: 1px solid var(--border-strong); border-radius: 999px; background: #1e293b; transition: background-color 180ms ease, border-color 180ms ease; }
+    .switch-track::after { content: ''; position: absolute; top: .18rem; left: .18rem; width: 1.05rem; height: 1.05rem; border-radius: 50%; background: var(--muted-strong); transition: transform 180ms ease, background-color 180ms ease; }
+    .setting-switch input:checked + .switch-track { border-color: var(--accent); background: var(--accent-strong); }
+    .setting-switch input:checked + .switch-track::after { transform: translateX(1.18rem); background: #fff; }
+    .setting-switch input:focus-visible + .switch-track { outline: 3px solid var(--focus); outline-offset: 2px; }
+    .workspace-grid { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(300px, .65fr); gap: 1rem; align-items: start; margin-bottom: 1.25rem; }
+    .workspace-grid .panel { height: auto; margin-bottom: 0; }
+    .workspace-grid .panel + .panel { margin-top: 0; }
+    .toolbar { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .75rem; }
+    .profile-grid { display: grid; grid-template-columns: minmax(0, .75fr) minmax(0, 1.5fr) auto; gap: .75rem; align-items: end; }
+    .profile-list { display: grid; gap: .55rem; margin-top: 1rem; }
+    .profile-item { display: grid; grid-template-columns: minmax(7rem, .7fr) minmax(0, 1fr) auto; gap: .75rem; align-items: center; padding: .7rem; border: 1px solid var(--border); border-radius: .55rem; background: var(--background-raised); }
+    .profile-remark { color: var(--text-soft); font-weight: 700; overflow-wrap: anywhere; }
+    .profile-endpoint { color: var(--muted); font-size: .85rem; overflow-wrap: anywhere; }
+    .profile-item button { min-height: 38px; }
     .proxy-hint { margin: .9rem 0 0; color: var(--muted); font-size: .85rem; }
+    .toolbar-actions { display: flex; flex-wrap: wrap; gap: .5rem; margin-top: .85rem; }
     .group-list { display: flex; flex-wrap: wrap; gap: .5rem; min-height: 2.5rem; }
     .group { display: inline-flex; align-items: center; gap: .5rem; max-width: 100%; padding: .5rem .7rem; border: 1px solid var(--border); border-radius: .55rem; background: var(--surface); }
     .group-endpoint { overflow-wrap: anywhere; color: var(--text-soft); }
@@ -159,7 +178,8 @@
       body { padding: .75rem; }
       .hero-row, .section-heading, .panel-actions, .auth-actions { align-items: flex-start; flex-direction: column; }
       .hero-actions, .auth-actions button { width: 100%; }
-      .auth-grid, .toolbar, .settings-grid { grid-template-columns: 1fr; }
+      .auth-grid, .toolbar, .settings-grid, .profile-grid { grid-template-columns: 1fr; }
+      .profile-item { grid-template-columns: 1fr; gap: .35rem; }
       .metric-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .55rem; }
       .metric-card { padding: .75rem; }
       .metric-value { font-size: 1.35rem; }
@@ -213,43 +233,54 @@
     <article class="metric-card"><span class="metric-label">Codex 凭证</span><strong id="metric-credentials" class="metric-value">—</strong><small id="metric-credentials-detail" class="metric-detail">等待连接</small></article>
     <article class="metric-card"><span class="metric-label">已停用凭证</span><strong id="metric-disabled" class="metric-value">—</strong><small id="metric-disabled-detail" class="metric-detail">等待状态数据</small></article>
     <article class="metric-card"><span class="metric-label">已配置代理</span><strong id="metric-proxies" class="metric-value">—</strong><small id="metric-proxies-detail" class="metric-detail">代理字段已脱敏</small></article>
-    <article class="metric-card"><span class="metric-label">代理分组</span><strong id="metric-groups" class="metric-value">—</strong><small id="metric-groups-detail" class="metric-detail">按脱敏端点归组</small></article>
+    <article class="metric-card"><span class="metric-label">代理备注</span><strong id="metric-groups" class="metric-value">—</strong><small id="metric-groups-detail" class="metric-detail">按已保存备注归组</small></article>
   </section>
 
   <section class="panel" aria-labelledby="settings-heading">
-    <div class="panel-heading"><h2 id="settings-heading">生效配置</h2><p>仅展示插件安全投影，不包含状态目录、凭证 JSON 或任何密钥。</p></div>
+    <div class="panel-heading"><h2 id="settings-heading">生效配置</h2><p>布尔功能可以直接开关；修改会保存到 CPA 插件配置，其余项目仅作状态展示。</p></div>
     <div id="settings" class="settings-grid" aria-live="polite"><div class="loading-state">连接 CPA 后加载配置。</div></div>
+  </section>
+
+  <section class="panel" aria-labelledby="profiles-heading">
+    <div class="panel-heading"><h2 id="profiles-heading">代理备注</h2><p>先保存代理备注和地址；给凭证配置代理时只需选择备注，不需要反复填写 URL。</p></div>
+    <div class="profile-grid">
+      <label class="field" for="profile-remark"><span>代理备注</span><input id="profile-remark" type="text" maxlength="120" autocomplete="off" placeholder="例如：香港主线路"></label>
+      <label class="field" for="profile-url"><span>代理 URL</span><input id="profile-url" type="url" autocomplete="off" inputmode="url" placeholder="http://proxy.example:8080"></label>
+      <button id="save-profile" class="primary" type="button">保存代理备注</button>
+    </div>
+    <p class="proxy-hint">代理账号和密码只用于 CPA 凭证的代理字段及独立连通性测试；页面列表只显示备注和脱敏端点。</p>
+    <div id="profiles" class="profile-list" aria-live="polite"><div class="loading-state">连接 CPA 后加载已保存的代理备注。</div></div>
   </section>
 
   <div class="workspace-grid">
     <section class="panel" aria-labelledby="proxy-heading">
       <div class="panel-heading"><h2 id="proxy-heading">批量代理管理</h2><p>先预览服务器校验后的结果，再应用到选中的凭证。</p></div>
       <div class="toolbar">
-        <label class="field" for="filter"><span>筛选端点或指纹</span><input id="filter" type="search" autocomplete="off" placeholder="proxy.example 或 sha256:"></label>
-        <label class="field" for="shared-proxy"><span>共享代理 URL（可选）</span><input id="shared-proxy" type="url" autocomplete="off" inputmode="url" placeholder="http://proxy.example:8080"><small class="field-help">填写后会应用到所有选中的凭证。</small></label>
+        <label class="field" for="filter"><span>筛选凭证或代理备注</span><input id="filter" type="search" autocomplete="off" placeholder="凭证索引、文件名或备注"></label>
+        <label class="field" for="shared-profile"><span>共享代理备注（可选）</span><select id="shared-profile"><option value="__per_row__">按每行选择</option><option value="__clear__">清除代理</option></select><small class="field-help">选择后会应用到所有选中的凭证。</small></label>
       </div>
       <div class="toolbar-actions"><button id="preview" class="primary" type="button">预览所选变更</button><button id="apply" type="button" disabled>应用预览</button></div>
-      <p class="proxy-hint">每行也可以填写不同的代理；留空表示清除该凭证代理。应用前会重新校验凭证版本，过期预览不会写入。</p>
+      <p class="proxy-hint">共享代理或每行选择“清除代理”即可清除；每个凭证也可以选择不同的已保存备注。应用前会重新校验凭证版本，过期预览不会写入。</p>
     </section>
 
     <section class="panel" aria-labelledby="test-heading">
-      <div class="panel-heading"><h2 id="test-heading">无令牌连通性测试</h2><p>使用独立的有界传输测试固定的非 Codex HTTPS 目标。</p></div>
-      <label class="field" for="test-proxy"><span>测试代理 URL</span><input id="test-proxy" type="url" autocomplete="off" inputmode="url" placeholder="socks5://proxy.example:1080"><small class="field-help">不会加载 AuthIndex、凭证 JSON 或 CPA 凭证令牌。</small></label>
+      <div class="panel-heading"><h2 id="test-heading">无令牌连通性测试</h2><p>选择已保存的代理备注，使用独立的有界传输测试固定的非 Codex HTTPS 目标。</p></div>
+      <label class="field" for="test-profile"><span>测试代理备注</span><select id="test-profile"><option value="">请选择已保存的代理备注</option></select><small class="field-help">不会加载 AuthIndex、凭证 JSON 或 CPA 凭证令牌。</small></label>
       <div class="toolbar-actions"><button id="test" class="primary" type="button">测试代理</button></div>
     </section>
   </div>
 
   <section class="panel" aria-labelledby="groups-heading">
-    <div class="section-heading panel-heading"><div><h2 id="groups-heading">代理分组</h2><p>相同的脱敏端点会合并显示，便于快速检查批量配置。</p></div><span id="groups-state" class="status-pill" data-state="loading">加载中…</span></div>
+    <div class="section-heading panel-heading"><div><h2 id="groups-heading">代理分组</h2><p>按代理备注分组显示；没有对应备注的旧代理会标记为未命名代理。</p></div><span id="groups-state" class="status-pill" data-state="loading">加载中…</span></div>
     <div id="groups" class="group-list" aria-live="polite"><div class="loading-state">连接 CPA 后加载代理分组。</div></div>
   </section>
 
   <section class="panel" aria-labelledby="credentials-heading">
-    <div class="section-heading panel-heading"><div><h2 id="credentials-heading">Codex 凭证</h2><p>仅显示 CPA 返回的安全投影；代理端点和指纹已脱敏。</p></div><span id="credentials-state" class="status-pill" data-state="loading">加载中…</span></div>
+    <div class="section-heading panel-heading"><div><h2 id="credentials-heading">Codex 凭证</h2><p>仅显示 CPA 返回的安全投影；配置代理时选择已保存的代理备注。</p></div><span id="credentials-state" class="status-pill" data-state="loading">加载中…</span></div>
     <div class="table-wrap">
       <table>
         <caption class="sr-only">Codex 凭证和代理配置</caption>
-        <thead><tr><th scope="col">选择</th><th scope="col">凭证</th><th scope="col">已禁用</th><th scope="col">代理端点 / 变更</th><th scope="col">所有权 / 探测</th></tr></thead>
+        <thead><tr><th scope="col">选择</th><th scope="col">凭证</th><th scope="col">已禁用</th><th scope="col">代理备注 / 变更</th><th scope="col">所有权 / 探测</th></tr></thead>
         <tbody id="credentials"><tr><td colspan="5"><div class="loading-state">加载中…</div></td></tr></tbody>
       </table>
     </div>
@@ -263,7 +294,7 @@
 </main>
 <script>
 'use strict';
-const state = { status: null, planId: '', changeVersion: 0, manualAuth: null, selectedAuthIndexes: new Set(), proxyDrafts: new Map(), requestController: null, sessionRequestVersion: 0, busy: false, busyKind: '' };
+const state = { status: null, planId: '', changeVersion: 0, manualAuth: null, selectedAuthIndexes: new Set(), proxyDrafts: new Map(), requestController: null, sessionRequestVersion: 0, busy: false, busyKind: '', configUpdating: false };
 const el = id => document.getElementById(id);
 const text = value => String(value == null ? '' : value);
 const safeErrorCodes = new Set([
@@ -272,7 +303,7 @@ const safeErrorCodes = new Set([
   'empty_response', 'host_unavailable', 'invalid_batch_size', 'invalid_json', 'invalid_proxy',
   'invalid_proxy_batch', 'invalid_response', 'method_not_allowed', 'not_found', 'plan_expired',
   'plan_expired_or_unknown', 'plan_id_required', 'post_save_mismatch', 'proxy_management_disabled',
-  'proxy_setup_failed', 'proxy_url_required', 'reachable', 'recovery_disabled', 'recovery_unavailable',
+  'proxy_setup_failed', 'proxy_url_required', 'proxy_profile_required', 'profile_not_found', 'profile_id_required', 'profile_store_unavailable', 'invalid_proxy_profile', 'reachable', 'recovery_disabled', 'recovery_unavailable',
   'request_failed', 'response_read_failed', 'response_too_large', 'revision_unavailable',
   'scan_incomplete', 'stale_preview', 'target_invalid', 'target_reachable_non_success', 'timeout',
   'connection_failed', 'canceled', 'unreachable', 'management_key_required', 'unauthorized', 'forbidden',
@@ -287,7 +318,7 @@ const errorLabels = {
   invalid_response: '响应无效', method_not_allowed: '不支持此请求方法', not_found: '未找到请求资源',
   plan_expired: '预览已过期', plan_expired_or_unknown: '预览已过期或不存在', plan_id_required: '缺少预览编号',
   post_save_mismatch: '保存后校验不一致', proxy_management_disabled: '代理管理未启用', proxy_setup_failed: '代理建立失败',
-  proxy_url_required: '需要代理 URL', reachable: '代理可连通', recovery_disabled: '恢复功能未启用',
+  proxy_url_required: '需要代理 URL', proxy_profile_required: '请选择代理备注', profile_not_found: '代理备注不存在', profile_id_required: '缺少代理备注编号', profile_store_unavailable: '代理备注存储不可用', invalid_proxy_profile: '代理备注或地址无效', reachable: '代理可连通', recovery_disabled: '恢复功能未启用',
   recovery_unavailable: '恢复功能不可用', request_failed: '请求失败', response_read_failed: '响应读取失败',
   response_too_large: '响应过大', revision_unavailable: '版本校验不可用', scan_incomplete: '扫描未完成',
   stale_preview: '预览已失效，凭证可能已被修改', target_invalid: '测试目标无效',
@@ -299,7 +330,7 @@ const errorLabels = {
   invalid_management_address: 'CPA 管理地址无效，请填写 http(s) 地址且不要包含账号、密码或查询参数',
   manual_key_required: '请输入 CPA 管理密钥后再连接'
 };
-const actionLabels = { set: '设置代理', replace: '替换代理', clear: '清除代理' };
+const actionLabels = { set: '设置代理', replace: '替换代理', clear: '清除代理', keep: '保持代理' };
 const phaseLabels = { owned_disabled: '插件已停用', restore_pending_probe: '等待恢复探测', probe_pending: '等待探测', manual_review: '人工复核' };
 const reasonLabels = {
   codex_usage_limit_reached: 'Codex 额度耗尽', codex_quota_evidence: '检测到 Codex 额度证据', codex_generic_rate_limit: '通用限流（已启用）',
@@ -315,11 +346,12 @@ const reasonLabels = {
 };
 const probeStatusLabels = { success: '成功', exhausted: '仍然耗尽', ambiguous: '结果不明确', error: '错误' };
 const configLabels = {
-  enabled: '插件已启用', state_dir_configured: '已配置持久化状态目录', recovery_enabled: '启用额度恢复', scan_interval: '扫描间隔',
+  enabled: '插件总开关', state_dir_configured: '已配置持久化状态目录', recovery_enabled: '启用额度恢复', scan_interval: '扫描间隔',
   initial_backoff: '初始退避时间', max_backoff: '最大退避时间', probe_enabled: '启用额度探测', probe_provider: '探测提供方',
   probe_model_configured: '已配置探测模型', probe_timeout: '探测超时', quota_detection_enabled: '启用额度检测',
   detect_http_429: '检测 HTTP 429', classify_generic_rate_limit: '分类通用限流', proxy_management_enabled: '启用代理管理'
 };
+const booleanConfigKeys = new Set(['enabled', 'recovery_enabled', 'probe_enabled', 'quota_detection_enabled', 'detect_http_429', 'classify_generic_rate_limit', 'proxy_management_enabled']);
 const panelAuthStorageKey = 'cli-proxy-auth';
 const panelAuthPrefix = 'enc::v1::';
 const panelAuthSalt = 'cli-proxy-api-webui::secure-storage';
@@ -427,7 +459,7 @@ function clearAuthFieldErrors() {
   setFieldError('manual-api-base', 'manual-base-error', '');
   setFieldError('manual-key', 'manual-key-error', '');
 }
-async function api(path, options) {
+async function managementAPI(path, options) {
   const session = managementSession();
   if (!session) { setAuthNotice('management_key_required'); setAuthState('error', '需要连接', '自动检测不到会话，请手动输入 CPA 管理密钥。'); throw new Error('management_key_required'); }
   const requestVersion = state.sessionRequestVersion;
@@ -448,7 +480,7 @@ async function api(path, options) {
   let response;
   let data;
   try {
-    response = await fetch(`${session.baseURL}/v0/management/plugins/cpa-credential-guard${path}`, requestOptions);
+    response = await fetch(`${session.baseURL}${path}`, requestOptions);
     data = await response.json().catch(error => {
       if (controller.signal.aborted) throw error;
       return {};
@@ -479,23 +511,43 @@ async function api(path, options) {
   }
   return data;
 }
+async function api(path, options) { return managementAPI(`/v0/management/plugins/cpa-credential-guard${path}`, options); }
+async function pluginConfigAPI(options) { return managementAPI('/v0/management/plugins/cpa-credential-guard/config', options); }
 function localizedSettings(config) {
   const output = {};
   Object.entries(config || {}).forEach(([key, value]) => {
     if (!Object.prototype.hasOwnProperty.call(configLabels, key)) return;
-    output[configLabels[key]] = settingValueLabel(key, value);
+    output[key] = { label: configLabels[key], value };
   });
   return output;
 }
 function isRecord(value) { return value !== null && typeof value === 'object' && !Array.isArray(value); }
 function statusProjection(value) {
-  if (!isRecord(value) || !isRecord(value.config) || !isRecord(value.state) || !Array.isArray(value.credentials) || !Array.isArray(value.proxy_groups) || value.credentials.some(row => !isRecord(row)) || value.proxy_groups.some(group => !isRecord(group))) throw new Error('invalid_response');
+  if (!isRecord(value) || !isRecord(value.config) || !isRecord(value.state) || !Array.isArray(value.credentials) || !Array.isArray(value.proxy_groups) || !Array.isArray(value.proxy_profiles) || value.credentials.some(row => !isRecord(row)) || value.proxy_groups.some(group => !isRecord(group)) || value.proxy_profiles.some(profile => !isRecord(profile))) throw new Error('invalid_response');
   return value;
 }
 function renderSettings(config) {
   const settings = localizedSettings(config);
   const entries = Object.entries(settings);
-  el('settings').innerHTML = entries.length ? entries.map(([key, value]) => `<div class="setting-item"><span class="setting-label">${escapeHTML(key)}</span><strong class="setting-value">${escapeHTML(value)}</strong></div>`).join('') : '<div class="empty-state">暂无可展示的配置。</div>';
+  el('settings').innerHTML = entries.length ? entries.map(([key, setting]) => {
+    if (booleanConfigKeys.has(key)) {
+      const checked = setting.value === true ? ' checked' : '';
+      return `<label class="setting-switch" for="config-${escapeHTML(key)}"><span class="setting-switch-copy"><span class="setting-label">${escapeHTML(setting.label)}</span><strong class="setting-value">${setting.value === true ? '已开启' : '已关闭'}</strong></span><input id="config-${escapeHTML(key)}" type="checkbox" data-config-key="${escapeHTML(key)}"${checked} aria-label="${escapeHTML(setting.label)}"><span class="switch-track" aria-hidden="true"></span></label>`;
+    }
+    return `<div class="setting-item"><span class="setting-label">${escapeHTML(setting.label)}</span><strong class="setting-value">${escapeHTML(settingValueLabel(key, setting.value))}</strong></div>`;
+  }).join('') : '<div class="empty-state">暂无可展示的配置。</div>';
+}
+function profileList(data) { return Array.isArray(data && data.proxy_profiles) ? data.proxy_profiles.filter(profile => profile && typeof profile === 'object') : []; }
+function renderProfileOptions() {
+  const profiles = profileList(state.status);
+  const selects = [el('shared-profile'), el('test-profile')].filter(Boolean);
+  selects.forEach(select => {
+    const current = select.value;
+    const prefix = select.id === 'shared-profile' ? '<option value="__per_row__">按每行选择</option><option value="__clear__">清除代理</option>' : '<option value="">请选择已保存的代理备注</option>';
+    select.innerHTML = prefix + profiles.map(profile => `<option value="${escapeHTML(text(profile.id))}">${escapeHTML(text(profile.remark))}${profile.endpoint ? ` · ${escapeHTML(text(profile.endpoint))}` : ''}</option>`).join('');
+    if ([...select.options].some(option => option.value === current)) select.value = current;
+  });
+  el('profiles').innerHTML = profiles.map(profile => `<article class="profile-item"><strong class="profile-remark">${escapeHTML(text(profile.remark))}</strong><span class="profile-endpoint">${escapeHTML(text(profile.endpoint) || '无可用端点')}</span><button type="button" class="subtle" data-delete-profile="${escapeHTML(text(profile.id))}" aria-label="删除代理备注 ${escapeHTML(text(profile.remark))}">删除</button></article>`).join('') || '<div class="empty-state">暂无代理备注，请先添加一个代理。</div>';
 }
 function renderMetrics(data) {
   const credentials = Array.isArray(data && data.credentials) ? data.credentials : [];
@@ -509,7 +561,7 @@ function renderMetrics(data) {
   el('metric-credentials-detail').textContent = data && data.state && data.state.available ? 'Host 状态可用' : 'Host 状态不可用';
   el('metric-disabled-detail').textContent = disabled ? '仅显示原生 disabled 状态' : '当前没有已停用凭证';
   el('metric-proxies-detail').textContent = configured ? '端点已脱敏' : '当前没有配置代理';
-  el('metric-groups-detail').textContent = groups.length ? '按脱敏端点归组' : '暂无代理分组';
+  el('metric-groups-detail').textContent = groups.length ? '按代理备注归组' : '暂无代理备注分组';
 }
 function ownershipText(ownership) {
   if (!ownership) return '非插件所有';
@@ -520,17 +572,19 @@ function render(data) {
   state.status = data || {};
   renderMetrics(state.status);
   renderSettings(state.status.config || {});
+  renderProfileOptions();
   const groups = Array.isArray(state.status.proxy_groups) ? state.status.proxy_groups.filter(group => group && typeof group === 'object') : [];
   el('groups-state').dataset.state = 'connected';
   el('groups-state').textContent = `${groups.length} 组`;
-  el('groups').innerHTML = groups.map(group => `<span class="group"><span class="group-endpoint">${escapeHTML(group.endpoint || group.fingerprint || '未知端点')}</span><span class="group-count">${escapeHTML(group.count || 0)} 个</span></span>`).join('') || '<div class="empty-state">暂无已配置的代理分组。</div>';
+  el('groups').innerHTML = groups.map(group => `<span class="group"><span class="group-endpoint">${escapeHTML(group.remark || '未命名代理')}</span><span class="group-count">${escapeHTML(group.count || 0)} 个${group.endpoint ? ` · ${escapeHTML(group.endpoint)}` : ''}</span></span>`).join('') || '<div class="empty-state">暂无已配置的代理分组。</div>';
   renderRows();
 }
 function renderDisconnected(reason) {
   state.status = null;
   invalidatePlan();
-  renderMetrics({ credentials: [], proxy_groups: [], state: { available: false } });
+  renderMetrics({ credentials: [], proxy_groups: [], proxy_profiles: [], state: { available: false } });
   renderSettings({});
+  renderProfileOptions();
   el('groups-state').dataset.state = 'error';
   el('groups-state').textContent = '等待连接';
   el('groups').innerHTML = `<div class="empty-state">${escapeHTML(reason || '连接 CPA 后加载代理分组。')}</div>`;
@@ -545,10 +599,16 @@ function rememberRowInputs() {
     if (input.checked) state.selectedAuthIndexes.add(authIndex);
     else state.selectedAuthIndexes.delete(authIndex);
   });
-  document.querySelectorAll('[data-proxy-input]').forEach(input => {
-    const authIndex = text(input.dataset.proxyInput);
+  document.querySelectorAll('[data-profile-select]').forEach(input => {
+    const authIndex = text(input.dataset.profileSelect);
     if (authIndex) state.proxyDrafts.set(authIndex, input.value);
   });
+}
+function profileOptions(selected, includeKeep = true) {
+  const profiles = profileList(state.status);
+  const options = includeKeep ? `<option value="__keep__"${selected === '__keep__' ? ' selected' : ''}>保持当前代理</option>` : '';
+  const clear = `<option value="__clear__"${selected === '__clear__' ? ' selected' : ''}>清除代理</option>`;
+  return options + clear + profiles.map(profile => `<option value="${escapeHTML(text(profile.id))}"${selected === text(profile.id) ? ' selected' : ''}>${escapeHTML(text(profile.remark))}</option>`).join('');
 }
 function renderRows() {
   if (!state.status) return;
@@ -558,27 +618,30 @@ function renderRows() {
   const validAuthIndexes = new Set(allRows.map(row => text(row.auth_index)));
   state.selectedAuthIndexes.forEach(authIndex => { if (!validAuthIndexes.has(authIndex)) state.selectedAuthIndexes.delete(authIndex); });
   state.proxyDrafts.forEach((_, authIndex) => { if (!validAuthIndexes.has(authIndex)) state.proxyDrafts.delete(authIndex); });
-  const rows = allRows.filter(row => {
+  const matches = row => {
     const proxy = row.proxy || {};
-    return !filter || [row.auth_index, row.file_name, proxy.endpoint, proxy.fingerprint].some(value => text(value).toLowerCase().includes(filter));
-  }).map(row => {
+    return !filter || [row.auth_index, row.file_name, proxy.endpoint, proxy.remark].some(value => text(value).toLowerCase().includes(filter));
+  };
+  const rows = allRows.filter(matches).map(row => {
     const proxy = row.proxy || {};
     const authIndex = text(row.auth_index);
     const endpoint = text(proxy.endpoint) || '无';
-    const fingerprint = text(proxy.fingerprint);
-    const draft = text(state.proxyDrafts.get(authIndex));
+    const remark = text(proxy.remark) || '未命名代理';
+    const selected = state.proxyDrafts.has(authIndex) ? text(state.proxyDrafts.get(authIndex)) : (text(proxy.profile_id) || '__keep__');
     const checked = state.selectedAuthIndexes.has(authIndex) ? ' checked' : '';
-    return `<tr><td><label class="check-target"><input type="checkbox" data-auth-index="${escapeHTML(authIndex)}"${checked} aria-label="选择凭证 ${escapeHTML(authIndex)}"></label></td><td><strong>${escapeHTML(authIndex)}</strong><br><span class="cell-muted">${escapeHTML(row.file_name || '')}</span></td><td>${row.disabled === true ? '是' : '否'}</td><td><span>${escapeHTML(endpoint)}</span><br><span class="cell-muted">${escapeHTML(fingerprint)}</span><label class="field inline-field" for="proxy-input-${escapeHTML(authIndex)}"><span>设置此凭证的代理</span><input id="proxy-input-${escapeHTML(authIndex)}" type="url" data-proxy-input="${escapeHTML(authIndex)}" value="${escapeHTML(draft)}" autocomplete="off" placeholder="留空则清除" aria-label="为 ${escapeHTML(authIndex)} 设置代理"></label></td><td>${escapeHTML(ownershipText(row.ownership))}</td></tr>`;
+    return `<tr><td><label class="check-target"><input type="checkbox" data-auth-index="${escapeHTML(authIndex)}"${checked} aria-label="选择凭证 ${escapeHTML(authIndex)}"></label></td><td><strong>${escapeHTML(authIndex)}</strong><br><span class="cell-muted">${escapeHTML(row.file_name || '')}</span></td><td>${row.disabled === true ? '是' : '否'}</td><td><span>${escapeHTML(remark)}</span><br><span class="cell-muted">${escapeHTML(endpoint)}</span><label class="field inline-field" for="profile-select-${escapeHTML(authIndex)}"><span>选择代理备注</span><select id="profile-select-${escapeHTML(authIndex)}" data-profile-select="${escapeHTML(authIndex)}" aria-label="为 ${escapeHTML(authIndex)} 选择代理备注">${profileOptions(selected)}</select></label></td><td>${escapeHTML(ownershipText(row.ownership))}</td></tr>`;
   }).join('');
   el('credentials').innerHTML = rows || `<tr><td colspan="5"><div class="empty-state">${filter ? '没有匹配的 Codex 凭证。' : '暂无 Codex 凭证。'}</div></td></tr>`;
   el('credentials-state').dataset.state = 'connected';
-  el('credentials-state').textContent = `${rows ? allRows.filter(row => { const proxy = row.proxy || {}; return !filter || [row.auth_index, row.file_name, proxy.endpoint, proxy.fingerprint].some(value => text(value).toLowerCase().includes(filter)); }).length : 0} 项`;
+  el('credentials-state').textContent = `${allRows.filter(matches).length} 项`;
 }
 function renderMutationResults(items, includeStatus) {
   const results = (Array.isArray(items) ? items : []).filter(item => item && typeof item === 'object').map(item => {
     const ok = includeStatus ? item.ok === true : !item.error_code;
     const status = includeStatus ? (ok ? '成功' : '失败') : (item.error_code ? '需检查' : '已预览');
-    const detail = `${actionLabel(item.action)} · ${text(item.old_endpoint) || '无'} → ${text(item.new_endpoint) || '无'}${item.error_code ? ` · ${errorLabel(item.error_code)}` : ''}`;
+    const oldLabel = text(item.old_profile_remark) || text(item.old_endpoint) || '无';
+    const newLabel = text(item.new_profile_remark) || text(item.new_endpoint) || '无';
+    const detail = `${actionLabel(item.action)} · ${oldLabel} → ${newLabel}${item.error_code ? ` · ${errorLabel(item.error_code)}` : ''}`;
     return `<article class="result-item"><strong class="result-id">${escapeHTML(text(item.auth_index))}</strong><span class="result-detail">${escapeHTML(detail)}</span><span class="result-status" data-ok="${ok}">${escapeHTML(status)}</span></article>`;
   });
   el('results').innerHTML = results.join('') || '<div class="empty-state">暂无操作结果。</div>';
@@ -587,8 +650,9 @@ function renderTestResults(items) {
   const results = (Array.isArray(items) ? items : []).filter(item => item && typeof item === 'object').map(item => {
     const ok = item.ok === true;
     const endpoint = text(item.endpoint) || '脱敏端点';
-    const detail = `${endpoint} · HTTP ${item.http_status || '无'} · ${item.latency_ms ? `${item.latency_ms} 毫秒` : '无延迟数据'}${item.error_code ? ` · ${errorLabel(item.error_code)}` : ''}`;
-    return `<article class="result-item"><strong class="result-id">${escapeHTML(endpoint)}</strong><span class="result-detail">${escapeHTML(detail)}</span><span class="result-status" data-ok="${ok}">${ok ? '可连通' : '不可连通'}</span></article>`;
+    const display = text(item.profile_remark) || endpoint;
+    const detail = `${display} · ${endpoint} · HTTP ${item.http_status || '无'} · ${item.latency_ms ? `${item.latency_ms} 毫秒` : '无延迟数据'}${item.error_code ? ` · ${errorLabel(item.error_code)}` : ''}`;
+    return `<article class="result-item"><strong class="result-id">${escapeHTML(display)}</strong><span class="result-detail">${escapeHTML(detail)}</span><span class="result-status" data-ok="${ok}">${ok ? '可连通' : '不可连通'}</span></article>`;
   });
   el('results').innerHTML = results.join('') || '<div class="empty-state">暂无测试结果。</div>';
 }
@@ -601,8 +665,8 @@ function setBusy(busy, kind = '') {
   });
   document.body.setAttribute('aria-busy', busy ? 'true' : 'false');
 }
-async function refresh() {
-  if (state.busy) return;
+async function refresh(force = false) {
+  if (state.busy && !force) return;
   const requestVersion = ++state.sessionRequestVersion;
   invalidatePlan();
   message('正在读取 CPA 状态…');
@@ -675,19 +739,62 @@ function toggleManualKey() {
   button.textContent = visible ? '显示密钥' : '隐藏密钥';
   button.setAttribute('aria-pressed', visible ? 'false' : 'true');
 }
+async function updatePluginConfig(key, value) {
+  if (state.configUpdating) return;
+  state.configUpdating = true;
+  try {
+    const result = await pluginConfigAPI({ method: 'PATCH', body: JSON.stringify({ [key]: value }) });
+    if (state.status) { state.status.config = Object.assign({}, state.status.config || {}, result.config || { [key]: value }); renderSettings(state.status.config); }
+    message(`${configLabels[key] || '配置'}已${value ? '开启' : '关闭'}。`);
+  } catch (error) {
+    message(`配置保存失败：${errorLabel(error.message)}`, true);
+    if (state.status) renderSettings(state.status.config || {});
+  } finally { state.configUpdating = false; }
+}
+async function saveProfile() {
+  if (state.busy) return;
+  const remark = el('profile-remark').value.trim();
+  const proxyURL = el('profile-url').value.trim();
+  if (!remark || !proxyURL) { message('请填写代理备注和代理 URL。', true); return; }
+  setBusy(true, 'profile');
+  try {
+    await api('/proxy/profiles', { method: 'POST', body: JSON.stringify({ remark, proxy_url: proxyURL }) });
+    el('profile-remark').value = '';
+    el('profile-url').value = '';
+    await refresh(true);
+  } catch (error) { message(`保存代理备注失败：${errorLabel(error.message)}`, true); }
+  finally { setBusy(false); }
+}
+async function deleteProfile(profileID) {
+  if (state.busy || !profileID) return;
+  setBusy(true, 'profile');
+  try {
+    await api('/proxy/profiles/delete', { method: 'POST', body: JSON.stringify({ profile_id: profileID }) });
+    message('代理备注已删除。');
+    await refresh(true);
+  } catch (error) { message(`删除代理备注失败：${errorLabel(error.message)}`, true); }
+  finally { setBusy(false); }
+}
 async function preview() {
   if (state.busy) return;
+  rememberRowInputs();
   const selected = [...document.querySelectorAll('[data-auth-index]:checked')].map(input => input.dataset.authIndex);
   if (!selected.length) { message('请至少选择一个凭证。', true); return; }
   invalidatePlan();
   const previewVersion = state.changeVersion;
-  const shared = el('shared-proxy').value.trim();
-  const changes = selected.map(authIndex => { const per = [...document.querySelectorAll('[data-proxy-input]')].find(input => input.dataset.proxyInput === authIndex); const raw = shared || (per && per.value.trim()) || ''; return raw ? { auth_index: authIndex, proxy_url: raw } : { auth_index: authIndex, clear: true }; });
+  const shared = el('shared-profile').value;
+  const changes = selected.map(authIndex => {
+    const per = [...document.querySelectorAll('[data-profile-select]')].find(input => input.dataset.profileSelect === authIndex);
+    const profileID = shared === '__per_row__' ? (per ? per.value : '__keep__') : shared;
+    if (!profileID || profileID === '__keep__') return { auth_index: authIndex, keep: true };
+    if (profileID === '__clear__') return { auth_index: authIndex, clear: true };
+    return { auth_index: authIndex, profile_id: profileID };
+  });
   message('正在生成代理预览…');
   setBusy(true);
   try { const result = await api('/proxy/preview', { method: 'POST', body: JSON.stringify({ changes }) });
     if (previewVersion !== state.changeVersion) { message('输入已变化，预览已丢弃，请重新预览。', true); return; }
-    state.planId = result.plan_id || ''; renderMutationResults(result.items, false); message(`${(Array.isArray(result.items) ? result.items : []).length} 项变更已生成预览。请检查脱敏端点后再应用。`); }
+    state.planId = result.plan_id || ''; renderMutationResults(result.items, false); message(`${(Array.isArray(result.items) ? result.items : []).length} 项变更已生成预览。请检查代理备注后再应用。`); }
   catch (error) { message(`预览失败：${errorLabel(error.message)}`, true); }
   finally { setBusy(false); el('apply').disabled = !state.planId; }
 }
@@ -702,11 +809,11 @@ async function apply() {
 }
 async function testProxy() {
   if (state.busy) return;
-  const raw = el('test-proxy').value.trim();
-  if (!raw) { message('请输入要测试的代理 URL。', true); el('test-proxy').focus(); return; }
+  const profileID = el('test-profile').value;
+  if (!profileID) { message('请选择要测试的代理备注。', true); el('test-profile').focus(); return; }
   message('正在测试代理连通性…');
   setBusy(true);
-  try { const result = await api('/proxy/test', { method: 'POST', body: JSON.stringify({ proxies: [raw] }) }); renderTestResults(result.items); const resultItems = Array.isArray(result.items) ? result.items : []; const item = resultItems[0] && typeof resultItems[0] === 'object' ? resultItems[0] : {}; message(item.ok === true ? `代理可连通：${text(item.endpoint) || '脱敏端点'}（${item.latency_ms || 0} 毫秒）` : `代理测试失败：${errorLabel(item.error_code, '代理不可连通')}`, item.ok !== true); }
+  try { const result = await api('/proxy/test', { method: 'POST', body: JSON.stringify({ profile_ids: [profileID] }) }); renderTestResults(result.items); const resultItems = Array.isArray(result.items) ? result.items : []; const item = resultItems[0] && typeof resultItems[0] === 'object' ? resultItems[0] : {}; message(item.ok === true ? `代理可连通：${text(item.profile_remark) || text(item.endpoint) || '已保存代理'}（${item.latency_ms || 0} 毫秒）` : `代理测试失败：${errorLabel(item.error_code, '代理不可连通')}`, item.ok !== true); }
   catch (error) { message(`代理测试失败：${errorLabel(error.message)}`, true); }
   finally { setBusy(false); }
 }
@@ -716,11 +823,13 @@ el('clear-manual').addEventListener('click', clearManual);
 el('toggle-manual-key').addEventListener('click', toggleManualKey);
 el('preview').addEventListener('click', preview);
 el('apply').addEventListener('click', apply);
+el('save-profile').addEventListener('click', saveProfile);
+el('profiles').addEventListener('click', event => { const button = event.target.closest('[data-delete-profile]'); if (button) deleteProfile(button.dataset.deleteProfile); });
+document.addEventListener('change', event => { const input = event.target; if (input.matches('[data-config-key]')) updatePluginConfig(input.dataset.configKey, input.checked); });
 el('test').addEventListener('click', testProxy);
 el('filter').addEventListener('input', () => { invalidatePlan(); renderRows(); });
-el('shared-proxy').addEventListener('input', invalidatePlan);
-el('credentials').addEventListener('input', event => { if (event.target.matches('[data-proxy-input]')) invalidatePlan(); });
-el('credentials').addEventListener('change', event => { if (event.target.matches('[data-auth-index]')) invalidatePlan(); });
+el('shared-profile').addEventListener('change', invalidatePlan);
+el('credentials').addEventListener('change', event => { if (event.target.matches('[data-auth-index], [data-profile-select]')) { rememberRowInputs(); invalidatePlan(); } });
 el('manual-api-base').addEventListener('input', () => { setFieldError('manual-api-base', 'manual-base-error', ''); invalidatePlan(); });
 el('manual-key').addEventListener('input', () => { setFieldError('manual-key', 'manual-key-error', ''); invalidatePlan(); });
 el('manual-key').addEventListener('keydown', event => { if (event.key === 'Enter') connectManual(); });

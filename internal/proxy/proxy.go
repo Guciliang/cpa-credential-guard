@@ -1,11 +1,9 @@
-// Package proxy validates, redacts, groups, and tests proxy endpoints without
+// Package proxy validates, redacts, and tests proxy endpoints without
 // accepting or loading CPA credential data.
 package proxy
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -51,8 +49,8 @@ func Validate(raw string) (Validated, error) {
 	hostname := strings.ToLower(u.Hostname())
 	if scheme == "socks5" {
 		scheme = "socks5h"
-		u.Scheme = scheme
 	}
+	u.Scheme = scheme
 	switch scheme {
 	case "http", "https", "socks5h":
 	default:
@@ -66,6 +64,7 @@ func Validate(raw string) (Validated, error) {
 		return Validated{}, errors.New("proxy port is invalid")
 	}
 	canonicalPort := strconv.Itoa(port)
+	u.Host = formatHost(hostname, canonicalPort)
 	if u.Fragment != "" {
 		return Validated{}, errors.New("proxy URL fragments are not allowed")
 	}
@@ -80,8 +79,7 @@ func Validate(raw string) (Validated, error) {
 		}
 	}
 	endpoint := scheme + "://" + formatHost(hostname, canonicalPort)
-	fingerprint := sha256.Sum256([]byte(endpoint))
-	return Validated{Raw: value, URL: u, Projection: domain.ProxyProjection{Configured: true, Endpoint: endpoint, Scheme: scheme, Host: hostname, Port: canonicalPort, Fingerprint: "sha256:" + hex.EncodeToString(fingerprint[:])}}, nil
+	return Validated{Raw: value, URL: u, Projection: domain.ProxyProjection{Configured: true, Endpoint: endpoint, Scheme: scheme, Host: hostname, Port: canonicalPort}}, nil
 }
 
 func formatHost(hostname, port string) string {
@@ -106,7 +104,6 @@ func Redact(raw string) domain.ProxyProjection {
 	}
 	return validated.Projection
 }
-func Fingerprint(raw string) string { return Redact(raw).Fingerprint }
 
 // Checker owns a separate token-free transport. The target is fixed and cannot
 // be supplied by a management request.

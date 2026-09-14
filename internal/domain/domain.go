@@ -164,15 +164,28 @@ type State struct {
 	Credentials   map[string]OwnershipRecord `json:"credentials"`
 }
 
+// ProxyProfileProjection is safe proxy catalog data. It contains only a user
+// supplied remark and a redacted endpoint; proxy credentials never cross the
+// management boundary.
+type ProxyProfileProjection struct {
+	ID       string `json:"id"`
+	Remark   string `json:"remark"`
+	Endpoint string `json:"endpoint"`
+	Scheme   string `json:"scheme,omitempty"`
+	Host     string `json:"host,omitempty"`
+	Port     string `json:"port,omitempty"`
+}
+
 // ProxyProjection is the only proxy representation crossing the management
 // boundary. Userinfo, query, and fragment are never returned.
 type ProxyProjection struct {
-	Configured  bool   `json:"configured"`
-	Endpoint    string `json:"endpoint,omitempty"`
-	Scheme      string `json:"scheme,omitempty"`
-	Host        string `json:"host,omitempty"`
-	Port        string `json:"port,omitempty"`
-	Fingerprint string `json:"fingerprint,omitempty"`
+	Configured bool   `json:"configured"`
+	Endpoint   string `json:"endpoint,omitempty"`
+	Scheme     string `json:"scheme,omitempty"`
+	Host       string `json:"host,omitempty"`
+	Port       string `json:"port,omitempty"`
+	ProfileID  string `json:"profile_id,omitempty"`
+	Remark     string `json:"remark,omitempty"`
 }
 
 // CredentialProjection is a safe status row.
@@ -199,21 +212,23 @@ type OwnershipSummary struct {
 }
 
 // BatchItemResult is used by proxy apply and test operations. It contains no
-// raw proxy URL; input URLs are represented by a redacted endpoint or hash.
+// raw proxy URL; input URLs are represented by a redacted endpoint or profile
+// remark.
 type BatchItemResult struct {
-	AuthIndex      string `json:"auth_index,omitempty"`
-	Action         string `json:"action,omitempty"`
-	Fingerprint    string `json:"fingerprint,omitempty"`
-	Endpoint       string `json:"endpoint,omitempty"`
-	OldEndpoint    string `json:"old_endpoint,omitempty"`
-	NewEndpoint    string `json:"new_endpoint,omitempty"`
-	OldFingerprint string `json:"old_fingerprint,omitempty"`
-	NewFingerprint string `json:"new_fingerprint,omitempty"`
-	OK             bool   `json:"ok"`
-	Reachable      bool   `json:"reachable,omitempty"`
-	HTTPStatus     int    `json:"http_status,omitempty"`
-	LatencyMS      int64  `json:"latency_ms,omitempty"`
-	ErrorCode      string `json:"error_code,omitempty"`
+	AuthIndex        string `json:"auth_index,omitempty"`
+	Action           string `json:"action,omitempty"`
+	Endpoint         string `json:"endpoint,omitempty"`
+	ProfileID        string `json:"profile_id,omitempty"`
+	ProfileRemark    string `json:"profile_remark,omitempty"`
+	OldEndpoint      string `json:"old_endpoint,omitempty"`
+	OldProfileRemark string `json:"old_profile_remark,omitempty"`
+	NewEndpoint      string `json:"new_endpoint,omitempty"`
+	NewProfileRemark string `json:"new_profile_remark,omitempty"`
+	OK               bool   `json:"ok"`
+	Reachable        bool   `json:"reachable,omitempty"`
+	HTTPStatus       int    `json:"http_status,omitempty"`
+	LatencyMS        int64  `json:"latency_ms,omitempty"`
+	ErrorCode        string `json:"error_code,omitempty"`
 }
 
 // EffectiveConfigProjection is safe to display in the sidebar.

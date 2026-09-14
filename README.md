@@ -90,10 +90,10 @@ proxy_management_enabled: true
 * 恢复操作必须同时满足：存在持久化的插件所有权记录，以及内容和运行时变更校验未发生变化。对于人工修改或无法验证的状态，插件会转入人工复核，不会覆盖用户的修改。
 * 恢复操作每次只执行一次有超时限制的凭证级 `GET https://chatgpt.com/backend-api/wham/usage` 请求。临时访问令牌不会被持久化、记录日志、显示给用户，也不会传递给代理测试。
 * 代理测试使用独立的、有超时限制的 HTTP/SOCKS 传输，并访问固定的非 Codex HTTPS 目标。代理测试不会接收 AuthIndex 或凭证 JSON；代理建立失败后也不会回退到直连。
-* 静态侧边栏资源不包含动态数据。经过认证的管理路由只返回脱敏后的端点、指纹、安全状态和每项独立结果。
+* 静态侧边栏资源不包含动态数据。经过认证的管理路由只返回代理备注、脱敏端点、安全状态和每项独立结果。
 * 插件只声明 `usage_plugin` 和 `management_api` 能力，不注册 scheduler/router/executor/interceptor，也不实现自定义的 502 重试。
 
-* 认证管理路由位于 `/v0/management/plugins/cpa-credential-guard/` 下，包括 `GET /status`、`POST /proxy/preview`、`POST /proxy/apply`、`POST /proxy/test` 和 `POST /recovery/scan`。浏览器资源地址是 `/v0/resource/plugins/cpa-credential-guard/index.html`，其中不包含由服务器渲染的凭证数据。
-* 代理预览计划五分钟后过期，并且会根据最新的 Host API 快照重新校验；异构批量操作会返回每个项目独立的结果。原始代理 URL 只存在于短生命周期的内存计划中，不会被返回给前端，也不会写入状态文件。
+* 认证管理路由位于 `/v0/management/plugins/cpa-credential-guard/` 下，包括 `GET /status`、`GET/POST /proxy/profiles`、`POST /proxy/profiles/delete`、`POST /proxy/preview`、`POST /proxy/apply`、`POST /proxy/test` 和 `POST /recovery/scan`。浏览器资源地址是 `/v0/resource/plugins/cpa-credential-guard/index.html`，其中不包含由服务器渲染的凭证数据。
+* 代理备注目录和运行状态都位于 `state_dir`：目录中的代理配置以受限权限保存，前端和状态投影只显示备注与脱敏端点；给凭证分配代理时选择已保存的备注，不需要反复输入 URL。代理预览计划五分钟后过期，并且会根据最新的 Host API 快照重新校验；异构批量操作会返回每个项目独立的结果。原始代理 URL 不会返回给前端，也不会写入运行时所有权状态。
 
 请参阅 `NOTICE.md` 了解 SDK、直接依赖和行为参考的许可说明。项目没有复制 Sub2API 的 LGPL 源码，也没有采用 `codex-429-autoban` 的调度器行为。

@@ -22,6 +22,7 @@ import (
 	"cpa-credential-guard/internal/config"
 	"cpa-credential-guard/internal/credentials"
 	"cpa-credential-guard/internal/domain"
+	"cpa-credential-guard/internal/profiles"
 	"cpa-credential-guard/internal/proxy"
 	"cpa-credential-guard/internal/state"
 	"github.com/router-for-me/CLIProxyAPI/v7/sdk/pluginapi"
@@ -44,6 +45,7 @@ type Service struct {
 	store        *state.Store
 	recovery     RecoveryScanner
 	checker      *proxy.Checker
+	profileStore *profiles.Store
 	plansMu      sync.Mutex
 	plans        map[string]plan
 	now          func() time.Time
@@ -59,6 +61,8 @@ type plan struct {
 type planItem struct {
 	AuthIndex     string
 	Name          string
+	ProfileID     string
+	ProfileRemark string
 	RawURL        string
 	Clear         bool
 	Action        string
@@ -71,21 +75,34 @@ type planItem struct {
 
 type ProxyChange struct {
 	AuthIndex string  `json:"auth_index"`
-	ProxyURL  *string `json:"proxy_url,omitempty"`
+	ProfileID string  `json:"profile_id,omitempty"`
+	ProxyURL  *string `json:"proxy_url,omitempty"` // legacy input; UI uses ProfileID
 	Clear     bool    `json:"clear,omitempty"`
+	Keep      bool    `json:"keep,omitempty"`
 }
 type ProxyPreviewRequest struct {
 	AuthIndex   string        `json:"auth_index,omitempty"`
 	Changes     []ProxyChange `json:"changes,omitempty"`
 	AuthIndexes []string      `json:"auth_indexes,omitempty"`
-	ProxyURL    *string       `json:"proxy_url,omitempty"`
+	ProfileID   string        `json:"profile_id,omitempty"`
+	ProxyURL    *string       `json:"proxy_url,omitempty"` // legacy input
 	Clear       bool          `json:"clear,omitempty"`
 }
 type proxyApplyRequest struct {
 	PlanID string `json:"plan_id"`
 }
 type proxyTestRequest struct {
-	Proxies []string `json:"proxies"`
+	Proxies    []string `json:"proxies,omitempty"` // retained for direct token-free tests
+	ProfileIDs []string `json:"profile_ids,omitempty"`
+}
+type proxyProfileRequest struct {
+	ID       string `json:"id,omitempty"`
+	Remark   string `json:"remark"`
+	ProxyURL string `json:"proxy_url"`
+}
+type proxyProfileDeleteRequest struct {
+	ID        string `json:"id,omitempty"`
+	ProfileID string `json:"profile_id,omitempty"`
 }
 
 type statusResponse struct {
@@ -94,13 +111,19 @@ type statusResponse struct {
 		Available       bool `json:"available"`
 		CredentialCount int  `json:"credential_count"`
 	} `json:"state"`
-	Credentials []domain.CredentialProjection `json:"credentials"`
-	ProxyGroups []proxyGroup                  `json:"proxy_groups"`
+	Credentials   []domain.CredentialProjection   `json:"credentials"`
+	ProxyGroups   []proxyGroup                    `json:"proxy_groups"`
+	ProxyProfiles []domain.ProxyProfileProjection `json:"proxy_profiles"`
 }
 type proxyGroup struct {
-	Fingerprint string `json:"fingerprint"`
-	Endpoint    string `json:"endpoint"`
-	Count       int    `json:"count"`
+	ProfileID string `json:"profile_id,omitempty"`
+	Remark    string `json:"remark,omitempty"`
+	Endpoint  string `json:"endpoint"`
+	Count     int    `json:"count"`
+}
+
+func (s *Service) SetProfileStore(store *profiles.Store) {
+	s.profileStore = store
 }
 
 func New(cfg config.Config, repo *credentials.Repository, store *state.Store, recovery RecoveryScanner) *Service {
@@ -145,6 +168,9 @@ func (s *Service) RegisterManagement(_ context.Context, req pluginapi.Management
 	return pluginapi.ManagementRegistrationResponse{
 		Routes: []pluginapi.ManagementRoute{
 			{Method: http.MethodGet, Path: managementPrefix + "/status", Description: "安全的凭证守护状态投影。", Handler: handler},
+			{Method: http.MethodGet, Path: managementPrefix + "/proxy/profiles", Description: "查看已保存的代理备注。", Handler: handler},
+			{Method: http.MethodPost, Path: managementPrefix + "/proxy/profiles", Description: "保存代理备注和代理地址。", Handler: handler},
+			{Method: http.MethodPost, Path: managementPrefix + "/proxy/profiles/delete", Description: "删除代理备注。", Handler: handler},
 			{Method: http.MethodPost, Path: managementPrefix + "/proxy/preview", Description: "应用前验证代理批次。", Handler: handler},
 			{Method: http.MethodPost, Path: managementPrefix + "/proxy/apply", Description: "应用已验证的代理计划。", Handler: handler},
 			{Method: http.MethodPost, Path: managementPrefix + "/proxy/test", Description: "测试无令牌代理连通性。", Handler: handler},
@@ -189,6 +215,32 @@ func (s *Service) HandleManagement(ctx context.Context, req pluginapi.Management
 			return jsonResponse(http.StatusMethodNotAllowed, map[string]string{"error": "method_not_allowed"})
 		}
 		return s.status(ctx)
+	case "/proxy/profiles":
+		if !s.cfg.Enabled || !s.cfg.ProxyManagementEnabled {
+			return jsonResponse(http.StatusForbidden, map[string]string{"error": "proxy_management_disabled"})
+		}
+		switch req.Method {
+		case http.MethodGet:
+			return s.profileList(ctx)
+		case http.MethodPost:
+			if !validJSONContentType(req.Headers) {
+				return jsonResponse(http.StatusUnsupportedMediaType, map[string]string{"error": "content_type_required"})
+			}
+			return s.profileSave(ctx, req.Body)
+		default:
+			return jsonResponse(http.StatusMethodNotAllowed, map[string]string{"error": "method_not_allowed"})
+		}
+	case "/proxy/profiles/delete":
+		if !s.cfg.Enabled || !s.cfg.ProxyManagementEnabled {
+			return jsonResponse(http.StatusForbidden, map[string]string{"error": "proxy_management_disabled"})
+		}
+		if req.Method != http.MethodPost {
+			return jsonResponse(http.StatusMethodNotAllowed, map[string]string{"error": "method_not_allowed"})
+		}
+		if !validJSONContentType(req.Headers) {
+			return jsonResponse(http.StatusUnsupportedMediaType, map[string]string{"error": "content_type_required"})
+		}
+		return s.profileDelete(ctx, req.Body)
 	case "/proxy/preview":
 		if !s.cfg.Enabled || !s.cfg.ProxyManagementEnabled {
 			return jsonResponse(http.StatusForbidden, map[string]string{"error": "proxy_management_disabled"})
@@ -233,7 +285,10 @@ func (s *Service) HandleManagement(ctx context.Context, req pluginapi.Management
 }
 
 func (s *Service) status(ctx context.Context) (pluginapi.ManagementResponse, error) {
-	out := statusResponse{Config: s.cfg.EffectiveProjection(), Credentials: []domain.CredentialProjection{}, ProxyGroups: []proxyGroup{}}
+	out := statusResponse{Config: s.cfg.EffectiveProjection(), Credentials: []domain.CredentialProjection{}, ProxyGroups: []proxyGroup{}, ProxyProfiles: []domain.ProxyProfileProjection{}}
+	if s.profileStore != nil {
+		out.ProxyProfiles = s.profileStore.List()
+	}
 	if s.store != nil {
 		out.State.Available = true
 		out.State.CredentialCount = len(s.store.Snapshot().Credentials)
@@ -243,7 +298,7 @@ func (s *Service) status(ctx context.Context) (pluginapi.ManagementResponse, err
 	}
 	entries, err := s.repo.List(ctx)
 	if err != nil {
-		return jsonResponse(http.StatusOK, map[string]any{"config": out.Config, "state": map[string]any{"available": false}, "credentials": []any{}, "error": "host_unavailable"})
+		return jsonResponse(http.StatusOK, map[string]any{"config": out.Config, "state": map[string]any{"available": false}, "credentials": []any{}, "proxy_groups": []any{}, "proxy_profiles": out.ProxyProfiles, "error": "host_unavailable"})
 	}
 	groups := map[string]*proxyGroup{}
 	for _, entry := range entries {
@@ -254,7 +309,12 @@ func (s *Service) status(ctx context.Context) (pluginapi.ManagementResponse, err
 		if err != nil {
 			continue
 		}
-		row := domain.CredentialProjection{AuthIndex: entry.AuthIndex, AuthID: entry.ID, FileName: snap.Name, Provider: entry.Provider, Label: entry.Label, Disabled: snap.Disabled, Proxy: proxy.Redact(snap.ProxyURL)}
+		proxyProjection := proxy.Redact(snap.ProxyURL)
+		if profile, ok := s.matchProfile(snap.ProxyURL); ok {
+			proxyProjection.ProfileID = profile.ID
+			proxyProjection.Remark = profile.Remark
+		}
+		row := domain.CredentialProjection{AuthIndex: entry.AuthIndex, AuthID: entry.ID, FileName: snap.Name, Provider: entry.Provider, Label: entry.Label, Disabled: snap.Disabled, Proxy: proxyProjection}
 		if s.store != nil {
 			if record, ok := s.store.Get("codex:" + entry.AuthIndex); ok {
 				row.Ownership = &domain.OwnershipSummary{Phase: record.Phase, DisabledAt: record.DisabledAt, ResetAt: record.ResetAt, NextCheckAt: record.NextCheckAt, BackoffLevel: record.BackoffLevel, LastReason: domain.SafeCode(record.LastReason), LastProbe: domain.SafeProbeSummary(record.LastProbe)}
@@ -262,9 +322,16 @@ func (s *Service) status(ctx context.Context) (pluginapi.ManagementResponse, err
 		}
 		out.Credentials = append(out.Credentials, row)
 		if row.Proxy.Configured {
-			key := row.Proxy.Fingerprint
+			key := row.Proxy.ProfileID
+			if key == "" {
+				key = "endpoint:" + row.Proxy.Endpoint
+			}
 			if groups[key] == nil {
-				groups[key] = &proxyGroup{Fingerprint: key, Endpoint: row.Proxy.Endpoint}
+				remark := row.Proxy.Remark
+				if remark == "" {
+					remark = "未命名代理"
+				}
+				groups[key] = &proxyGroup{ProfileID: row.Proxy.ProfileID, Remark: remark, Endpoint: row.Proxy.Endpoint}
 			}
 			groups[key].Count++
 		}
@@ -273,9 +340,74 @@ func (s *Service) status(ctx context.Context) (pluginapi.ManagementResponse, err
 		out.ProxyGroups = append(out.ProxyGroups, *group)
 	}
 	sort.Slice(out.ProxyGroups, func(i, j int) bool {
-		return out.ProxyGroups[i].Fingerprint < out.ProxyGroups[j].Fingerprint
+		if out.ProxyGroups[i].Remark == out.ProxyGroups[j].Remark {
+			return out.ProxyGroups[i].Endpoint < out.ProxyGroups[j].Endpoint
+		}
+		return out.ProxyGroups[i].Remark < out.ProxyGroups[j].Remark
 	})
 	return jsonResponse(http.StatusOK, out)
+}
+
+func (s *Service) matchProfile(rawURL string) (profiles.Profile, bool) {
+	if s.profileStore == nil || strings.TrimSpace(rawURL) == "" {
+		return profiles.Profile{}, false
+	}
+	return s.profileStore.Match(rawURL)
+}
+
+func (s *Service) profileList(_ context.Context) (pluginapi.ManagementResponse, error) {
+	if s.profileStore == nil {
+		return jsonResponse(http.StatusServiceUnavailable, map[string]string{"error": "profile_store_unavailable"})
+	}
+	return jsonResponse(http.StatusOK, map[string]any{"profiles": s.profileStore.List()})
+}
+
+func (s *Service) profileSave(_ context.Context, raw []byte) (pluginapi.ManagementResponse, error) {
+	if len(raw) > MaxManagementBody {
+		return jsonResponse(http.StatusRequestEntityTooLarge, map[string]string{"error": "body_too_large"})
+	}
+	if s.profileStore == nil {
+		return jsonResponse(http.StatusServiceUnavailable, map[string]string{"error": "profile_store_unavailable"})
+	}
+	var request proxyProfileRequest
+	if err := decodeBody(raw, &request); err != nil {
+		return jsonResponse(http.StatusBadRequest, map[string]string{"error": "invalid_json"})
+	}
+	profile, err := s.profileStore.Upsert(request.ID, request.Remark, request.ProxyURL)
+	if err != nil {
+		if errors.Is(err, profiles.ErrInvalid) || strings.Contains(err.Error(), "proxy profile remark already exists") {
+			return jsonResponse(http.StatusUnprocessableEntity, map[string]string{"error": "invalid_proxy_profile"})
+		}
+		return jsonResponse(http.StatusServiceUnavailable, map[string]string{"error": "profile_store_unavailable"})
+	}
+	return jsonResponse(http.StatusOK, map[string]any{"profile": profile.Projection})
+}
+
+func (s *Service) profileDelete(_ context.Context, raw []byte) (pluginapi.ManagementResponse, error) {
+	if len(raw) > MaxManagementBody {
+		return jsonResponse(http.StatusRequestEntityTooLarge, map[string]string{"error": "body_too_large"})
+	}
+	if s.profileStore == nil {
+		return jsonResponse(http.StatusServiceUnavailable, map[string]string{"error": "profile_store_unavailable"})
+	}
+	var request proxyProfileDeleteRequest
+	if err := decodeBody(raw, &request); err != nil {
+		return jsonResponse(http.StatusBadRequest, map[string]string{"error": "profile_id_required"})
+	}
+	requestID := strings.TrimSpace(request.ProfileID)
+	if requestID == "" {
+		requestID = strings.TrimSpace(request.ID)
+	}
+	if requestID == "" {
+		return jsonResponse(http.StatusBadRequest, map[string]string{"error": "profile_id_required"})
+	}
+	if err := s.profileStore.Delete(requestID); err != nil {
+		if errors.Is(err, profiles.ErrNotFound) {
+			return jsonResponse(http.StatusNotFound, map[string]string{"error": "profile_not_found"})
+		}
+		return jsonResponse(http.StatusServiceUnavailable, map[string]string{"error": "profile_store_unavailable"})
+	}
+	return jsonResponse(http.StatusOK, map[string]any{"deleted": true, "id": requestID})
 }
 
 func (s *Service) prunePlansLocked(now time.Time) {
@@ -299,6 +431,37 @@ func (s *Service) prunePlansLocked(now time.Time) {
 	}
 }
 
+func (s *Service) resolveProxyChange(change ProxyChange) (string, profiles.Profile, string) {
+	if change.Keep {
+		return "", profiles.Profile{}, "keep"
+	}
+	profileID := strings.TrimSpace(change.ProfileID)
+	if profileID != "" {
+		if change.ProxyURL != nil {
+			return "", profiles.Profile{}, "ambiguous_proxy_change"
+		}
+		if s.profileStore == nil {
+			return "", profiles.Profile{}, "profile_store_unavailable"
+		}
+		profile, ok := s.profileStore.Get(profileID)
+		if !ok {
+			return "", profiles.Profile{}, "profile_not_found"
+		}
+		return profile.ProxyURL, profile, ""
+	}
+	if change.ProxyURL == nil {
+		return "", profiles.Profile{}, "proxy_profile_required"
+	}
+	validated, err := proxy.Validate(*change.ProxyURL)
+	if err != nil {
+		return "", profiles.Profile{}, "invalid_proxy"
+	}
+	if profile, ok := s.matchProfile(validated.URL.String()); ok {
+		return validated.URL.String(), profile, ""
+	}
+	return validated.URL.String(), profiles.Profile{}, ""
+}
+
 func (s *Service) preview(ctx context.Context, raw []byte) (pluginapi.ManagementResponse, error) {
 	if len(raw) > MaxManagementBody {
 		return jsonResponse(http.StatusRequestEntityTooLarge, map[string]string{"error": "body_too_large"})
@@ -309,11 +472,11 @@ func (s *Service) preview(ctx context.Context, raw []byte) (pluginapi.Management
 	}
 	changes := request.Changes
 	if len(changes) == 0 && request.AuthIndex != "" {
-		changes = append(changes, ProxyChange{AuthIndex: request.AuthIndex, ProxyURL: request.ProxyURL, Clear: request.Clear})
+		changes = append(changes, ProxyChange{AuthIndex: request.AuthIndex, ProfileID: request.ProfileID, ProxyURL: request.ProxyURL, Clear: request.Clear})
 	}
 	if len(changes) == 0 && len(request.AuthIndexes) > 0 {
 		for _, index := range request.AuthIndexes {
-			changes = append(changes, ProxyChange{AuthIndex: index, ProxyURL: request.ProxyURL, Clear: request.Clear})
+			changes = append(changes, ProxyChange{AuthIndex: index, ProfileID: request.ProfileID, ProxyURL: request.ProxyURL, Clear: request.Clear})
 		}
 	}
 	if len(changes) == 0 || len(changes) > MaxBatchItems {
@@ -390,29 +553,50 @@ func (s *Service) preview(ctx context.Context, raw []byte) (pluginapi.Management
 			items = append(items, item)
 			continue
 		}
-		if change.Clear && change.ProxyURL != nil {
+		oldProjection := proxy.Redact(snap.ProxyURL)
+		if oldProfile, ok := s.matchProfile(snap.ProxyURL); ok {
+			oldProjection.ProfileID = oldProfile.ID
+			oldProjection.Remark = oldProfile.Remark
+		}
+		item.OldProjection = oldProjection
+		result.OldEndpoint = oldProjection.Endpoint
+		result.OldProfileRemark = oldProjection.Remark
+		if change.Clear && (change.ProxyURL != nil || strings.TrimSpace(change.ProfileID) != "" || change.Keep) {
 			item.ErrorCode = "ambiguous_proxy_change"
 			result.ErrorCode = item.ErrorCode
 			results = append(results, result)
 			items = append(items, item)
 			continue
 		}
-		oldProjection := proxy.Redact(snap.ProxyURL)
-		item.OldProjection = oldProjection
-		result.OldEndpoint = oldProjection.Endpoint
-		result.OldFingerprint = oldProjection.Fingerprint
+		if change.Keep {
+			item.Action = "keep"
+			item.Projection = oldProjection
+			item.ProfileID = oldProjection.ProfileID
+			item.ProfileRemark = oldProjection.Remark
+			result.Action = item.Action
+			result.Endpoint = oldProjection.Endpoint
+			result.ProfileID = oldProjection.ProfileID
+			result.ProfileRemark = oldProjection.Remark
+			result.NewEndpoint = oldProjection.Endpoint
+			result.NewProfileRemark = oldProjection.Remark
+			result.OK = true
+			items = append(items, item)
+			results = append(results, result)
+			continue
+		}
 		if change.Clear {
 			item.Action = "clear"
 			result.Action = "clear"
 		} else {
-			if change.ProxyURL == nil {
-				item.ErrorCode = "proxy_url_required"
+			rawURL, profile, resolveCode := s.resolveProxyChange(change)
+			if resolveCode != "" {
+				item.ErrorCode = resolveCode
 				result.ErrorCode = item.ErrorCode
 				results = append(results, result)
 				items = append(items, item)
 				continue
 			}
-			validated, validateErr := proxy.Validate(*change.ProxyURL)
+			validated, validateErr := proxy.Validate(rawURL)
 			if validateErr != nil {
 				item.ErrorCode = "invalid_proxy"
 				result.ErrorCode = item.ErrorCode
@@ -422,6 +606,12 @@ func (s *Service) preview(ctx context.Context, raw []byte) (pluginapi.Management
 			}
 			item.RawURL = validated.URL.String()
 			item.Projection = validated.Projection
+			if profile.ID != "" {
+				item.ProfileID = profile.ID
+				item.ProfileRemark = profile.Remark
+				item.Projection.ProfileID = profile.ID
+				item.Projection.Remark = profile.Remark
+			}
 			if snap.ProxyURL == "" {
 				item.Action = "set"
 			} else {
@@ -429,13 +619,17 @@ func (s *Service) preview(ctx context.Context, raw []byte) (pluginapi.Management
 			}
 			result.Action = item.Action
 			result.Endpoint = item.Projection.Endpoint
-			result.Fingerprint = item.Projection.Fingerprint
+			result.ProfileID = item.ProfileID
+			result.ProfileRemark = item.ProfileRemark
 			result.NewEndpoint = item.Projection.Endpoint
-			result.NewFingerprint = item.Projection.Fingerprint
+			result.NewProfileRemark = item.ProfileRemark
 		}
 		if item.Action == "clear" {
 			result.Endpoint = ""
-			result.Fingerprint = ""
+			result.ProfileID = ""
+			result.ProfileRemark = ""
+			result.NewEndpoint = ""
+			result.NewProfileRemark = ""
 		}
 		result.OK = true
 		items = append(items, item)
@@ -489,9 +683,14 @@ func (s *Service) apply(ctx context.Context, raw []byte) (pluginapi.ManagementRe
 	}
 	results := make([]domain.BatchItemResult, 0, len(p.Items))
 	for _, item := range p.Items {
-		result := domain.BatchItemResult{AuthIndex: item.AuthIndex, Action: item.Action, Endpoint: item.Projection.Endpoint, Fingerprint: item.Projection.Fingerprint, OldEndpoint: item.OldProjection.Endpoint, OldFingerprint: item.OldProjection.Fingerprint}
+		result := domain.BatchItemResult{AuthIndex: item.AuthIndex, Action: item.Action, Endpoint: item.Projection.Endpoint, ProfileID: item.ProfileID, ProfileRemark: item.ProfileRemark, OldEndpoint: item.OldProjection.Endpoint, OldProfileRemark: item.OldProjection.Remark, NewEndpoint: item.Projection.Endpoint, NewProfileRemark: item.ProfileRemark}
 		if item.ErrorCode != "" {
 			result.ErrorCode = item.ErrorCode
+			results = append(results, result)
+			continue
+		}
+		if item.Action == "keep" {
+			result.OK = true
 			results = append(results, result)
 			continue
 		}
@@ -514,9 +713,12 @@ func (s *Service) apply(ctx context.Context, raw []byte) (pluginapi.ManagementRe
 		}
 		result.OK = true
 		result.Endpoint = proxy.Redact(mutation.After.ProxyURL).Endpoint
-		result.Fingerprint = proxy.Redact(mutation.After.ProxyURL).Fingerprint
+		if profile, ok := s.matchProfile(mutation.After.ProxyURL); ok {
+			result.ProfileID = profile.ID
+			result.ProfileRemark = profile.Remark
+		}
 		result.NewEndpoint = result.Endpoint
-		result.NewFingerprint = result.Fingerprint
+		result.NewProfileRemark = result.ProfileRemark
 		results = append(results, result)
 	}
 	return jsonResponse(http.StatusOK, map[string]any{"plan_id": request.PlanID, "items": results})
@@ -527,14 +729,33 @@ func (s *Service) test(ctx context.Context, raw []byte) (pluginapi.ManagementRes
 		return jsonResponse(http.StatusRequestEntityTooLarge, map[string]string{"error": "body_too_large"})
 	}
 	var request proxyTestRequest
-	if err := decodeBody(raw, &request); err != nil || len(request.Proxies) == 0 || len(request.Proxies) > MaxBatchItems {
+	if err := decodeBody(raw, &request); err != nil {
+		return jsonResponse(http.StatusBadRequest, map[string]string{"error": "invalid_json"})
+	}
+	if len(request.Proxies)+len(request.ProfileIDs) == 0 || len(request.Proxies)+len(request.ProfileIDs) > MaxBatchItems {
 		return jsonResponse(http.StatusBadRequest, map[string]string{"error": "invalid_proxy_batch"})
 	}
+	if len(request.ProfileIDs) > 0 && s.profileStore == nil {
+		return jsonResponse(http.StatusServiceUnavailable, map[string]string{"error": "profile_store_unavailable"})
+	}
 	checker := s.checkerForRequest()
-	results := make([]domain.BatchItemResult, 0, len(request.Proxies))
+	results := make([]domain.BatchItemResult, 0, len(request.Proxies)+len(request.ProfileIDs))
+	for _, profileID := range request.ProfileIDs {
+		profile, ok := s.profileStore.Get(strings.TrimSpace(profileID))
+		if !ok {
+			results = append(results, domain.BatchItemResult{ProfileID: strings.TrimSpace(profileID), ErrorCode: "profile_not_found"})
+			continue
+		}
+		checkResult := checker.Check(ctx, profile.ProxyURL)
+		results = append(results, domain.BatchItemResult{ProfileID: profile.ID, ProfileRemark: profile.Remark, Endpoint: checkResult.Projection.Endpoint, Reachable: checkResult.Reachable, HTTPStatus: checkResult.HTTPStatus, LatencyMS: checkResult.Latency.Milliseconds(), OK: checkResult.Reachable, ErrorCode: checkResult.ErrorCode})
+	}
 	for _, rawProxy := range request.Proxies {
-		result := checker.Check(ctx, rawProxy)
-		results = append(results, domain.BatchItemResult{Endpoint: result.Projection.Endpoint, Fingerprint: result.Projection.Fingerprint, Reachable: result.Reachable, HTTPStatus: result.HTTPStatus, LatencyMS: result.Latency.Milliseconds(), OK: result.Reachable, ErrorCode: result.ErrorCode})
+		checkResult := checker.Check(ctx, rawProxy)
+		profileID, profileRemark := "", ""
+		if profile, ok := s.matchProfile(rawProxy); ok {
+			profileID, profileRemark = profile.ID, profile.Remark
+		}
+		results = append(results, domain.BatchItemResult{ProfileID: profileID, ProfileRemark: profileRemark, Endpoint: checkResult.Projection.Endpoint, Reachable: checkResult.Reachable, HTTPStatus: checkResult.HTTPStatus, LatencyMS: checkResult.Latency.Milliseconds(), OK: checkResult.Reachable, ErrorCode: checkResult.ErrorCode})
 	}
 	return jsonResponse(http.StatusOK, map[string]any{"items": results})
 }

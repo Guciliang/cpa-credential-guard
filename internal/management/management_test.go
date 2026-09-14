@@ -89,7 +89,7 @@ func TestRegistrationUsesPluginScopedRoutes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(registered.Routes) != 5 || registered.Routes[0].Path != "/plugins/cpa-credential-guard/status" {
+	if len(registered.Routes) != 8 || registered.Routes[0].Path != "/plugins/cpa-credential-guard/status" {
 		t.Fatalf("routes=%#v", registered.Routes)
 	}
 	resp, err := svc.HandleManagement(context.Background(), pluginapi.ManagementRequest{Method: http.MethodGet, Path: "/v0/management/plugins/cpa-credential-guard/status"})
@@ -117,12 +117,12 @@ func TestManagementServesStaticResourceThroughDynamicPath(t *testing.T) {
 	if !strings.Contains(body, "CPA 凭证守护") {
 		t.Fatalf("resource body does not contain the plugin title")
 	}
-	for _, marker := range []string{"lang=\"zh-CN\"", "color-scheme: dark", "代理管理", "应用预览", "测试代理", "连接 CPA", "CPA 管理密钥", "manual-key", "clear-manual", "credentials = 'omit'", "AbortController", "check-target", "跳到主要内容", "pagehide", "invalidatePlan", "previewVersion", "statusProjection", "cli-proxy-auth", "enc::v1::", "cli-proxy-api-webui::secure-storage", "Authorization", "management_key_required", "记住密码", "prefers-reduced-motion"} {
+	for _, marker := range []string{"lang=\"zh-CN\"", "color-scheme: dark", "代理管理", "代理备注", "保存代理备注", "data-config-key", "type=\"checkbox\"", "PATCH", "应用预览", "测试代理", "连接 CPA", "CPA 管理密钥", "manual-key", "clear-manual", "credentials = 'omit'", "AbortController", "check-target", "跳到主要内容", "pagehide", "invalidatePlan", "previewVersion", "statusProjection", "input.dataset.profileSelect", "proxy_profiles", "profile_id", "cli-proxy-auth", "enc::v1::", "cli-proxy-api-webui::secure-storage", "Authorization", "management_key_required", "记住密码", "prefers-reduced-motion"} {
 		if !strings.Contains(body, marker) {
 			t.Fatalf("resource body missing Chinese/dark UI marker %q", marker)
 		}
 	}
-	for _, forbidden := range []string{"lang=\"en\"", "color-scheme: light", "color-scheme: light dark", "light-theme", "theme-toggle"} {
+	for _, forbidden := range []string{"lang=\"en\"", "color-scheme: light", "color-scheme: light dark", "light-theme", "theme-toggle", "fingerprint", "Fingerprint", "指纹"} {
 		if strings.Contains(body, forbidden) {
 			t.Fatalf("resource body contains forbidden light/English theme marker %q", forbidden)
 		}

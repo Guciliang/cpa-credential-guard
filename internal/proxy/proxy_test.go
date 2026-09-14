@@ -23,8 +23,8 @@ func TestValidateRedactsUserinfoQueryAndNormalizesSOCKS(t *testing.T) {
 	if validated.Projection.Endpoint != "socks5h://proxy.example:1080" {
 		t.Fatalf("endpoint=%q", validated.Projection.Endpoint)
 	}
-	if validated.Projection.Fingerprint == "" {
-		t.Fatal("missing fingerprint")
+	if validated.Projection.Remark != "" || validated.Projection.ProfileID != "" {
+		t.Fatalf("unexpected profile metadata: %#v", validated.Projection)
 	}
 	for _, raw := range []string{"ftp://proxy.example:21", "http://proxy.example", "http://proxy.example:abc", "http://proxy.example:8080#fragment", ""} {
 		if _, err := Validate(raw); err == nil {
@@ -38,11 +38,11 @@ func TestValidateRedactsUserinfoQueryAndNormalizesSOCKS(t *testing.T) {
 	}
 }
 
-func TestFingerprintExcludesProxyCredentials(t *testing.T) {
+func TestRedactedEndpointExcludesProxyCredentials(t *testing.T) {
 	a := Redact("http://alice:one@proxy.example:8080")
 	b := Redact("http://bob:two@proxy.example:8080")
-	if a.Fingerprint != b.Fingerprint {
-		t.Fatalf("fingerprints differ: %v %v", a, b)
+	if a.Endpoint != b.Endpoint {
+		t.Fatalf("redacted endpoints differ: %v %v", a, b)
 	}
 	if strings.Contains(a.Endpoint, "alice") || strings.Contains(b.Endpoint, "two") {
 		t.Fatal("userinfo leaked")

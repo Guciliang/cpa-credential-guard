@@ -18,6 +18,7 @@ import (
 	"cpa-credential-guard/internal/domain"
 	"cpa-credential-guard/internal/host"
 	"cpa-credential-guard/internal/management"
+	"cpa-credential-guard/internal/profiles"
 	"cpa-credential-guard/internal/quota"
 	"cpa-credential-guard/internal/recovery"
 	"cpa-credential-guard/internal/state"
@@ -25,17 +26,18 @@ import (
 )
 
 type Controller struct {
-	cfg         config.Config
-	host        host.API
-	repo        *credentials.Repository
-	store       *state.Store
-	recovery    *recovery.Manager
-	management  *management.Service
-	ctx         context.Context
-	cancel      context.CancelFunc
-	operations  sync.WaitGroup
-	operationMu sync.Mutex
-	closing     bool
+	cfg          config.Config
+	host         host.API
+	repo         *credentials.Repository
+	store        *state.Store
+	profileStore *profiles.Store
+	recovery     *recovery.Manager
+	management   *management.Service
+	ctx          context.Context
+	cancel       context.CancelFunc
+	operations   sync.WaitGroup
+	operationMu  sync.Mutex
+	closing      bool
 }
 
 func New(ctx context.Context, cfg config.Config, api host.API) (*Controller, error) {
@@ -70,6 +72,13 @@ func newController(ctx context.Context, cfg config.Config, api host.API, startRe
 			return c, err
 		}
 		c.store = store
+		profileStore, _, profileErr := profiles.New(cfg.StateDir)
+		if profileErr != nil {
+			_ = store.Close()
+			cancel()
+			return c, profileErr
+		}
+		c.profileStore = profileStore
 		health := codexhealth.NewClient()
 		health.Timeout = cfg.ProbeTimeout
 		rCfg := recovery.Config{Enabled: cfg.RecoveryEnabled, ProbeEnabled: cfg.ProbeEnabled, ScanInterval: cfg.ScanInterval, InitialBackoff: cfg.InitialBackoff, MaxBackoff: cfg.MaxBackoff}
@@ -79,6 +88,7 @@ func newController(ctx context.Context, cfg config.Config, api host.API, startRe
 		}
 	}
 	c.management = management.New(cfg, c.repo, c.store, c.recovery)
+	c.management.SetProfileStore(c.profileStore)
 	c.management.SetRouteHandler(c)
 	return c, nil
 }
@@ -137,6 +147,9 @@ func (c *Controller) Shutdown() {
 	c.operations.Wait()
 	if c.store != nil {
 		_ = c.store.Close()
+	}
+	if c.profileStore != nil {
+		_ = c.profileStore.Close()
 	}
 }
 
