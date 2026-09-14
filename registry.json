@@ -6,7 +6,7 @@
       "name": "CPA 凭证守护",
       "description": "面向 CLIProxyAPI 的 Codex 额度恢复与安全批量代理管理插件，不替换 CPA 的调度或重试行为。",
       "author": "Guciliang",
-      "version": "0.1.6",
+      "version": "0.1.7",
       "repository": "https://github.com/Guciliang/cpa-credential-guard",
       "homepage": "https://github.com/Guciliang/cpa-credential-guard",
       "tags": [
