@@ -126,3 +126,60 @@ Implemented and verified the Credential Guard sidebar layout, proxy selection/pe
 ### Status
 
 [OK] **Completed**
+
+
+## Session 3: Credential Guard sidebar layout and interaction repair
+<!-- trellis-session: v=3 fp=credential-guard-sidebar-audit -->
+
+**Date**: 2026-09-20
+**Task**: credential-guard-sidebar-audit
+**Branch**: `main`
+
+### Summary
+
+Implemented the approved Credential Guard sidebar repair without committing or pushing. Replaced the incorrect card-grid direction with a full-width semantic credential data table (one credential per row, horizontally separated columns, right-side actions), added immediate Toast feedback and a visible preview dialog, added safe saved-proxy editing, and added retain-vs-replace profile persistence semantics. The existing automatic CPA session path was retained because isolated reference research confirmed the `cli-proxy-auth` envelope and obfuscation format; browser checks verify synthetic automatic connection without putting the key in the visible input.
+
+### Verification
+
+- `go test ./...`
+- `go vet ./...`
+- `go test -race ./internal/management ./internal/profiles`
+- `node .cpa-integration-test/ui-syntax-check.js`
+- `node .cpa-integration-test/ui-auth-check.cjs`
+- `node .cpa-integration-test/ui-sidebar-check.cjs`
+- `cmp -s web/index.html internal/management/web/index.html`
+- `git diff --check`
+- Chromium screenshots: `browser-implemented-wide.png`, `browser-implemented-preview.png`, `browser-implemented-narrow.png`
+
+### Status
+
+[READY] **Implementation and quality checks complete; awaiting separate user approval before commit/push**
+
+## Session 4: Final table/fallback boundary correction
+<!-- trellis-session: v=4 fp=credential-guard-sidebar-audit -->
+
+**Date**: 2026-09-20
+**Task**: credential-guard-sidebar-audit
+**Branch**: `main`
+
+### Summary
+
+继续完成用户批准的最终界面契约：凭证区保持 Sub2API 启发的横向数据表格，而不是卡片网格；代理名称、额度、额度重置时间、额度唤醒和右侧图标操作均按最终列顺序呈现。连接/清除按钮右对齐，已保存代理、编辑表单、无令牌检测按垂直顺序排列，检测状态在控件上方，预览/代理检测通过对话框，其他结果通过 Toast。
+
+补充并收紧了 saved-proxy fallback：支持不回退、直连、备用代理三种策略；回退模式、备用 profile、自引用/循环引用由 profile store 原子校验。活动回退期间禁止编辑回退配置和删除，恢复请求可以不携带凭证索引，由服务端从活动记录推导并校验当前回退归属。`ProxyProfileProjection` 不返回活动凭证索引、原始代理 URL 或 userinfo；当前插件仍不拦截 CPA 上游真实请求。
+
+### Verification
+
+- `go test ./...`
+- `go vet ./...`
+- `go test -race ./internal/management ./internal/profiles`
+- `node .cpa-integration-test/ui-syntax-check.js`
+- `node .cpa-integration-test/ui-auth-check.cjs`
+- `node .cpa-integration-test/ui-sidebar-check.cjs`
+- `cmp -s web/index.html internal/management/web/index.html`
+- `git diff --check`
+- Chromium screenshots: `browser-final-table-wide.png`, `browser-final-preview.png`, `browser-final-table-narrow.png`
+
+### Status
+
+[READY] **实现与质量检查完成；未创建 commit、tag、push 或远程变更，等待单独提交批准**
