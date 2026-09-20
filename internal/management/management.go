@@ -61,6 +61,13 @@ type plan struct {
 	ID        string
 	ExpiresAt time.Time
 	Items     []planItem
+	Fallback  *fallbackPlan
+}
+
+type fallbackPlan struct {
+	Action      string
+	ProfileID   string
+	AuthIndexes []string
 }
 type planItem struct {
 	AuthIndex     string
@@ -85,12 +92,19 @@ type ProxyChange struct {
 	Keep      bool    `json:"keep,omitempty"`
 }
 type ProxyPreviewRequest struct {
-	AuthIndex   string        `json:"auth_index,omitempty"`
-	Changes     []ProxyChange `json:"changes,omitempty"`
-	AuthIndexes []string      `json:"auth_indexes,omitempty"`
-	ProfileID   string        `json:"profile_id,omitempty"`
-	ProxyURL    *string       `json:"proxy_url,omitempty"` // legacy input
-	Clear       bool          `json:"clear,omitempty"`
+	AuthIndex   string                `json:"auth_index,omitempty"`
+	Changes     []ProxyChange         `json:"changes,omitempty"`
+	AuthIndexes []string              `json:"auth_indexes,omitempty"`
+	ProfileID   string                `json:"profile_id,omitempty"`
+	ProxyURL    *string               `json:"proxy_url,omitempty"` // legacy input
+	Clear       bool                  `json:"clear,omitempty"`
+	Fallback    *proxyFallbackRequest `json:"fallback,omitempty"`
+}
+
+type proxyFallbackRequest struct {
+	Action      string   `json:"action"`
+	ProfileID   string   `json:"profile_id"`
+	AuthIndexes []string `json:"auth_indexes,omitempty"`
 }
 type proxyApplyRequest struct {
 	PlanID string `json:"plan_id"`
@@ -108,9 +122,11 @@ type quotaQueryItem struct {
 	ErrorCode string               `json:"error_code,omitempty"`
 }
 type proxyProfileRequest struct {
-	ID       string `json:"id,omitempty"`
-	Remark   string `json:"remark"`
-	ProxyURL string `json:"proxy_url"`
+	ID                string  `json:"id,omitempty"`
+	Remark            string  `json:"remark"`
+	ProxyURL          *string `json:"proxy_url,omitempty"`
+	FallbackMode      *string `json:"fallback_mode,omitempty"`
+	FallbackProfileID *string `json:"fallback_profile_id,omitempty"`
 }
 type proxyProfileDeleteRequest struct {
 	ID        string `json:"id,omitempty"`
@@ -464,8 +480,14 @@ func (s *Service) profileSave(_ context.Context, raw []byte) (pluginapi.Manageme
 	if err := decodeBody(raw, &request); err != nil {
 		return jsonResponse(http.StatusBadRequest, map[string]string{"error": "invalid_json"})
 	}
-	profile, err := s.profileStore.Upsert(request.ID, request.Remark, request.ProxyURL)
+	profile, err := s.profileStore.SaveWithFallback(request.ID, request.Remark, request.ProxyURL, request.FallbackMode, request.FallbackProfileID)
 	if err != nil {
+		if errors.Is(err, profiles.ErrNotFound) {
+			return jsonResponse(http.StatusNotFound, map[string]string{"error": "profile_not_found"})
+		}
+		if errors.Is(err, profiles.ErrActiveFallback) {
+			return jsonResponse(http.StatusConflict, map[string]string{"error": "fallback_active"})
+		}
 		if errors.Is(err, profiles.ErrInvalid) || strings.Contains(err.Error(), "proxy profile remark already exists") {
 			return jsonResponse(http.StatusUnprocessableEntity, map[string]string{"error": "invalid_proxy_profile"})
 		}
@@ -495,6 +517,12 @@ func (s *Service) profileDelete(_ context.Context, raw []byte) (pluginapi.Manage
 	if err := s.profileStore.Delete(requestID); err != nil {
 		if errors.Is(err, profiles.ErrNotFound) {
 			return jsonResponse(http.StatusNotFound, map[string]string{"error": "profile_not_found"})
+		}
+		if errors.Is(err, profiles.ErrReferenced) {
+			return jsonResponse(http.StatusConflict, map[string]string{"error": "profile_in_use"})
+		}
+		if errors.Is(err, profiles.ErrActiveFallback) {
+			return jsonResponse(http.StatusConflict, map[string]string{"error": "fallback_active"})
 		}
 		return jsonResponse(http.StatusServiceUnavailable, map[string]string{"error": "profile_store_unavailable"})
 	}
@@ -553,6 +581,68 @@ func (s *Service) resolveProxyChange(change ProxyChange) (string, profiles.Profi
 	return validated.URL.String(), profiles.Profile{}, ""
 }
 
+func normalizeFallbackIndexes(indexes []string) []string {
+	seen := make(map[string]struct{}, len(indexes))
+	out := make([]string, 0, len(indexes))
+	for _, index := range indexes {
+		index = strings.TrimSpace(index)
+		if index == "" || len(index) > 256 || strings.ContainsAny(index, "\x00\r\n") {
+			continue
+		}
+		if _, ok := seen[index]; ok {
+			continue
+		}
+		seen[index] = struct{}{}
+		out = append(out, index)
+	}
+	sort.Strings(out)
+	return out
+}
+
+func (s *Service) validateFallbackRequest(request *proxyFallbackRequest) (*fallbackPlan, string) {
+	if request == nil {
+		return nil, ""
+	}
+	if s.profileStore == nil {
+		return nil, "profile_store_unavailable"
+	}
+	profileID := strings.TrimSpace(request.ProfileID)
+	profile, ok := s.profileStore.Get(profileID)
+	if !ok {
+		return nil, "profile_not_found"
+	}
+	indexes := normalizeFallbackIndexes(request.AuthIndexes)
+	action := strings.TrimSpace(request.Action)
+	if action == "restore" && len(indexes) == 0 {
+		indexes = normalizeFallbackIndexes(profile.FallbackAuthIndexes)
+	}
+	if len(indexes) == 0 || len(indexes) > MaxBatchItems {
+		return nil, "invalid_fallback_request"
+	}
+	switch action {
+	case "activate":
+		if profile.Projection.FallbackMode == domain.FallbackNone || profile.Projection.FallbackMode == "" {
+			return nil, "fallback_not_configured"
+		}
+	case "restore":
+		if profile.Projection.FallbackState != "active" {
+			return nil, "fallback_not_active"
+		}
+		allowed := make(map[string]struct{}, len(profile.FallbackAuthIndexes))
+		for _, index := range profile.FallbackAuthIndexes {
+			allowed[index] = struct{}{}
+		}
+		for _, index := range indexes {
+			if _, ok := allowed[index]; !ok {
+				return nil, "invalid_fallback_request"
+			}
+		}
+	default:
+		return nil, "invalid_fallback_request"
+	}
+	return &fallbackPlan{Action: action, ProfileID: profile.ID, AuthIndexes: indexes}, ""
+}
+
 func (s *Service) preview(ctx context.Context, raw []byte) (pluginapi.ManagementResponse, error) {
 	if len(raw) > MaxManagementBody {
 		return jsonResponse(http.StatusRequestEntityTooLarge, map[string]string{"error": "body_too_large"})
@@ -561,6 +651,10 @@ func (s *Service) preview(ctx context.Context, raw []byte) (pluginapi.Management
 	if err := decodeBody(raw, &request); err != nil {
 		return jsonResponse(http.StatusBadRequest, map[string]string{"error": "invalid_json"})
 	}
+	fallback, fallbackCode := s.validateFallbackRequest(request.Fallback)
+	if fallbackCode != "" {
+		return jsonResponse(http.StatusUnprocessableEntity, map[string]string{"error": fallbackCode})
+	}
 	changes := request.Changes
 	if len(changes) == 0 && request.AuthIndex != "" {
 		changes = append(changes, ProxyChange{AuthIndex: request.AuthIndex, ProfileID: request.ProfileID, ProxyURL: request.ProxyURL, Clear: request.Clear})
@@ -568,6 +662,11 @@ func (s *Service) preview(ctx context.Context, raw []byte) (pluginapi.Management
 	if len(changes) == 0 && len(request.AuthIndexes) > 0 {
 		for _, index := range request.AuthIndexes {
 			changes = append(changes, ProxyChange{AuthIndex: index, ProfileID: request.ProfileID, ProxyURL: request.ProxyURL, Clear: request.Clear})
+		}
+	}
+	if len(changes) == 0 && fallback != nil && fallback.Action == "restore" {
+		for _, index := range fallback.AuthIndexes {
+			changes = append(changes, ProxyChange{AuthIndex: index, ProfileID: fallback.ProfileID})
 		}
 	}
 	if len(changes) == 0 || len(changes) > MaxBatchItems {
@@ -729,10 +828,64 @@ func (s *Service) preview(ctx context.Context, raw []byte) (pluginapi.Management
 		results = append(results, result)
 	}
 	valid := false
+	validFallbackIndexes := make(map[string]struct{})
 	for _, item := range items {
 		if item.ErrorCode == "" {
 			valid = true
-			break
+			if fallback != nil {
+				validFallbackIndexes[item.AuthIndex] = struct{}{}
+			}
+		}
+	}
+	if fallback != nil {
+		profile, ok := s.profileStore.Get(fallback.ProfileID)
+		if !ok {
+			return jsonResponse(http.StatusUnprocessableEntity, map[string]string{"error": "profile_not_found"})
+		}
+		requested := make(map[string]struct{}, len(fallback.AuthIndexes))
+		for _, authIndex := range fallback.AuthIndexes {
+			requested[authIndex] = struct{}{}
+			if _, ok := validFallbackIndexes[authIndex]; !ok {
+				return jsonResponse(http.StatusUnprocessableEntity, map[string]string{"error": "invalid_fallback_request"})
+			}
+		}
+		for _, item := range items {
+			if item.ErrorCode != "" {
+				continue
+			}
+			if _, ok := requested[item.AuthIndex]; !ok {
+				return jsonResponse(http.StatusUnprocessableEntity, map[string]string{"error": "invalid_fallback_request"})
+			}
+			if fallback.Action == "activate" {
+				// A fallback may only be activated for a credential that still
+				// uses the profile whose connectivity failed. Otherwise a forged
+				// management request could mark an unrelated credential as
+				// recoverable and later restore it to the wrong proxy.
+				if item.OldProjection.ProfileID != profile.ID {
+					return jsonResponse(http.StatusUnprocessableEntity, map[string]string{"error": "invalid_fallback_request"})
+				}
+				switch profile.FallbackMode {
+				case domain.FallbackDirect:
+					if !item.Clear {
+						return jsonResponse(http.StatusUnprocessableEntity, map[string]string{"error": "invalid_fallback_request"})
+					}
+				case domain.FallbackProfile:
+					if item.Clear || item.ProfileID != profile.FallbackProfileID {
+						return jsonResponse(http.StatusUnprocessableEntity, map[string]string{"error": "invalid_fallback_request"})
+					}
+				}
+			} else {
+				expectedFallbackID := ""
+				if profile.FallbackMode == domain.FallbackProfile {
+					expectedFallbackID = profile.FallbackProfileID
+				}
+				// Restore must target a credential that is currently using the
+				// configured fallback (or direct access), not merely any listed
+				// auth index from an older active record.
+				if item.OldProjection.ProfileID != expectedFallbackID || item.Clear || item.ProfileID != profile.ID {
+					return jsonResponse(http.StatusUnprocessableEntity, map[string]string{"error": "invalid_fallback_request"})
+				}
+			}
 		}
 	}
 	planID := ""
@@ -740,7 +893,10 @@ func (s *Service) preview(ctx context.Context, raw []byte) (pluginapi.Management
 	if valid {
 		planID = newPlanID()
 		expiresAt = s.now().Add(5 * time.Minute)
-		p := plan{ID: planID, ExpiresAt: expiresAt, Items: items}
+		if fallback != nil {
+			fallback.AuthIndexes = append([]string(nil), fallback.AuthIndexes...)
+		}
+		p := plan{ID: planID, ExpiresAt: expiresAt, Items: items, Fallback: fallback}
 		s.plansMu.Lock()
 		s.prunePlansLocked(s.now())
 		s.plans[planID] = p
@@ -775,6 +931,7 @@ func (s *Service) apply(ctx context.Context, raw []byte) (pluginapi.ManagementRe
 		return jsonResponse(http.StatusConflict, map[string]string{"error": "plan_expired"})
 	}
 	results := make([]domain.BatchItemResult, 0, len(p.Items))
+	fallbackSuccess := make([]string, 0)
 	for _, item := range p.Items {
 		result := domain.BatchItemResult{AuthIndex: item.AuthIndex, Action: item.Action, Endpoint: item.Projection.Endpoint, ProfileID: item.ProfileID, ProfileRemark: item.ProfileRemark, OldEndpoint: item.OldProjection.Endpoint, OldProfileRemark: item.OldProjection.Remark, NewEndpoint: item.Projection.Endpoint, NewProfileRemark: item.ProfileRemark}
 		if item.ErrorCode != "" {
@@ -814,9 +971,24 @@ func (s *Service) apply(ctx context.Context, raw []byte) (pluginapi.ManagementRe
 		}
 		result.NewEndpoint = result.Endpoint
 		result.NewProfileRemark = result.ProfileRemark
+		if p.Fallback != nil && result.OK {
+			fallbackSuccess = append(fallbackSuccess, item.AuthIndex)
+		}
 		results = append(results, result)
 	}
-	return jsonResponse(http.StatusOK, map[string]any{"plan_id": request.PlanID, "items": results})
+	response := map[string]any{"plan_id": request.PlanID, "items": results}
+	if p.Fallback != nil && len(fallbackSuccess) > 0 && s.profileStore != nil {
+		var fallbackErr error
+		if p.Fallback.Action == "activate" {
+			fallbackErr = s.profileStore.MarkFallback(p.Fallback.ProfileID, fallbackSuccess)
+		} else {
+			fallbackErr = s.profileStore.ClearFallback(p.Fallback.ProfileID, fallbackSuccess)
+		}
+		if fallbackErr != nil {
+			response["fallback_error"] = "save_failed"
+		}
+	}
+	return jsonResponse(http.StatusOK, response)
 }
 
 func (s *Service) test(ctx context.Context, raw []byte) (pluginapi.ManagementResponse, error) {

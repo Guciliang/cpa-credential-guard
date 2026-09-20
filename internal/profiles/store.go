@@ -32,16 +32,22 @@ const (
 )
 
 var (
-	ErrNotFound = errors.New("proxy profile not found")
-	ErrInvalid  = errors.New("proxy profile is invalid")
-	identifier  = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_-]{0,95}$`)
+	ErrNotFound       = errors.New("proxy profile not found")
+	ErrInvalid        = errors.New("proxy profile is invalid")
+	ErrReferenced     = errors.New("proxy profile is referenced by a fallback")
+	ErrActiveFallback = errors.New("proxy profile has an active fallback")
+	identifier        = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_-]{0,95}$`)
 )
 
 type storedProfile struct {
-	ID        string    `json:"id"`
-	Remark    string    `json:"remark"`
-	ProxyURL  string    `json:"proxy_url"`
-	UpdatedAt time.Time `json:"updated_at"`
+	ID                  string    `json:"id"`
+	Remark              string    `json:"remark"`
+	ProxyURL            string    `json:"proxy_url"`
+	FallbackMode        string    `json:"fallback_mode,omitempty"`
+	FallbackProfileID   string    `json:"fallback_profile_id,omitempty"`
+	FallbackActive      bool      `json:"fallback_active,omitempty"`
+	FallbackAuthIndexes []string  `json:"fallback_auth_indexes,omitempty"`
+	UpdatedAt           time.Time `json:"updated_at"`
 }
 
 type document struct {
@@ -53,10 +59,13 @@ type document struct {
 // Profile is an in-process profile. ProxyURL never crosses the management
 // response boundary; callers should use Projection for UI/API data.
 type Profile struct {
-	ID         string
-	Remark     string
-	ProxyURL   string
-	Projection domain.ProxyProfileProjection
+	ID                  string
+	Remark              string
+	ProxyURL            string
+	FallbackMode        string
+	FallbackProfileID   string
+	FallbackAuthIndexes []string
+	Projection          domain.ProxyProfileProjection
 }
 
 type LoadReport struct {
@@ -275,7 +284,7 @@ func (s *Store) load() (LoadReport, error) {
 		}
 		loaded[profile.ID] = profile
 	}
-	if len(loaded) > maxProfiles {
+	if len(loaded) > maxProfiles || validateFallbackGraph(loaded) != nil {
 		_ = closeFile()
 		return s.recoverCorrupt(false)
 	}
@@ -314,6 +323,98 @@ func validateStored(profile storedProfile) error {
 	validated, err := proxy.Validate(profile.ProxyURL)
 	if err != nil || validated.URL.String() != profile.ProxyURL {
 		return ErrInvalid
+	}
+	if err := validateFallbackFields(profile.ID, profile.FallbackMode, profile.FallbackProfileID, profile.FallbackAuthIndexes, profile.FallbackActive); err != nil {
+		return err
+	}
+	return nil
+}
+
+func validateFallbackFields(id, mode, backupID string, authIndexes []string, active bool) error {
+	mode = strings.TrimSpace(mode)
+	backupID = strings.TrimSpace(backupID)
+	if mode == "" {
+		mode = domain.FallbackNone
+	}
+	switch mode {
+	case domain.FallbackNone, domain.FallbackDirect:
+		if backupID != "" {
+			return ErrInvalid
+		}
+	case domain.FallbackProfile:
+		if backupID == "" || backupID == id || !identifier.MatchString(backupID) {
+			return ErrInvalid
+		}
+	default:
+		return ErrInvalid
+	}
+	if active && mode == domain.FallbackNone {
+		return ErrInvalid
+	}
+	if active && len(authIndexes) == 0 {
+		return ErrInvalid
+	}
+	if !active && len(authIndexes) > 0 {
+		return ErrInvalid
+	}
+	if len(authIndexes) > maxProfiles {
+		return ErrInvalid
+	}
+	seen := make(map[string]struct{}, len(authIndexes))
+	for _, authIndex := range authIndexes {
+		authIndex = strings.TrimSpace(authIndex)
+		if authIndex == "" || len(authIndex) > 256 || strings.ContainsAny(authIndex, "\x00\r\n") {
+			return ErrInvalid
+		}
+		if _, ok := seen[authIndex]; ok {
+			return ErrInvalid
+		}
+		seen[authIndex] = struct{}{}
+	}
+	return nil
+}
+
+func validateFallbackGraph(profiles map[string]storedProfile) error {
+	for id, profile := range profiles {
+		if err := validateFallbackFields(id, profile.FallbackMode, profile.FallbackProfileID, profile.FallbackAuthIndexes, profile.FallbackActive); err != nil {
+			return err
+		}
+		if profile.FallbackMode == domain.FallbackProfile {
+			if _, ok := profiles[profile.FallbackProfileID]; !ok {
+				return ErrInvalid
+			}
+		}
+	}
+	const (
+		unseen = 0
+		active = 1
+		done   = 2
+	)
+	states := make(map[string]int, len(profiles))
+	var visit func(string) error
+	visit = func(id string) error {
+		switch states[id] {
+		case active:
+			return ErrInvalid
+		case done:
+			return nil
+		}
+		states[id] = active
+		profile := profiles[id]
+		if profile.FallbackMode == domain.FallbackProfile {
+			if err := visit(profile.FallbackProfileID); err != nil {
+				return err
+			}
+		}
+		states[id] = done
+		return nil
+	}
+	for id := range profiles {
+		if states[id] == unseen {
+			if err := visit(id); err != nil {
+				return err
+			}
+		}
 	}
 	return nil
 }
@@ -374,7 +475,28 @@ func (s *Store) Match(rawURL string) (Profile, bool) {
 	return Profile{}, false
 }
 
+// Upsert creates a profile or replaces it with a validated URL. It remains
+// available to in-process callers that have a complete URL; management routes
+// use Save so an edit can deliberately retain the server-side URL.
 func (s *Store) Upsert(id, remark, rawURL string) (Profile, error) {
+	return s.save(id, remark, &rawURL, true, false, nil, nil)
+}
+
+// Save creates or updates a profile. For an existing profile, a nil or blank
+// rawURL retains the catalog's current URL. The URL never leaves this store
+// through a management projection.
+func (s *Store) Save(id, remark string, rawURL *string) (Profile, error) {
+	return s.save(id, remark, rawURL, false, true, nil, nil)
+}
+
+// SaveWithFallback updates the safe fallback configuration together with the
+// profile. Nil fallback fields retain an existing setting on update and mean
+// no fallback on create, preserving older callers and catalog documents.
+func (s *Store) SaveWithFallback(id, remark string, rawURL, fallbackMode, fallbackProfileID *string) (Profile, error) {
+	return s.save(id, remark, rawURL, false, true, fallbackMode, fallbackProfileID)
+}
+
+func (s *Store) save(id, remark string, rawURL *string, allowNamedCreate, retainExistingURL bool, fallbackMode, fallbackProfileID *string) (Profile, error) {
 	id = strings.TrimSpace(id)
 	remark = strings.TrimSpace(remark)
 	if id != "" && !identifier.MatchString(id) {
@@ -383,18 +505,73 @@ func (s *Store) Upsert(id, remark, rawURL string) (Profile, error) {
 	if !validRemark(remark) {
 		return Profile{}, ErrInvalid
 	}
-	validated, err := proxy.Validate(rawURL)
-	if err != nil {
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	current, exists := s.profiles[id]
+	if id != "" && !exists && !allowNamedCreate {
+		return Profile{}, ErrNotFound
+	}
+	canonical := ""
+	if rawURL != nil && strings.TrimSpace(*rawURL) != "" {
+		validated, err := proxy.Validate(*rawURL)
+		if err != nil {
+			return Profile{}, fmt.Errorf("%w: proxy URL", ErrInvalid)
+		}
+		canonical = validated.URL.String()
+	} else if exists && retainExistingURL {
+		canonical = current.ProxyURL
+	} else {
 		return Profile{}, fmt.Errorf("%w: proxy URL", ErrInvalid)
 	}
-	canonical := validated.URL.String()
 	if id == "" {
 		id = newID()
 	}
-	profile := storedProfile{ID: id, Remark: remark, ProxyURL: canonical, UpdatedAt: s.now().UTC()}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if _, exists := s.profiles[id]; !exists && len(s.profiles) >= maxProfiles {
+	mode := domain.FallbackNone
+	backupID := ""
+	if exists {
+		mode = current.FallbackMode
+		if mode == "" {
+			mode = domain.FallbackNone
+		}
+		backupID = current.FallbackProfileID
+	}
+	if fallbackMode != nil {
+		mode = strings.TrimSpace(*fallbackMode)
+		if mode == "" {
+			mode = domain.FallbackNone
+		}
+		if mode != domain.FallbackProfile {
+			backupID = ""
+		}
+	}
+	if fallbackProfileID != nil {
+		backupID = strings.TrimSpace(*fallbackProfileID)
+	}
+	if mode != domain.FallbackProfile {
+		backupID = ""
+	}
+	if exists && current.FallbackActive {
+		currentMode := current.FallbackMode
+		if currentMode == "" {
+			currentMode = domain.FallbackNone
+		}
+		if mode != currentMode || backupID != current.FallbackProfileID {
+			return Profile{}, ErrActiveFallback
+		}
+	}
+	if err := validateFallbackFields(id, mode, backupID, nil, false); err != nil {
+		return Profile{}, err
+	}
+	profile := storedProfile{ID: id, Remark: remark, ProxyURL: canonical, FallbackMode: mode, FallbackProfileID: backupID, UpdatedAt: s.now().UTC()}
+	if exists && current.FallbackActive {
+		profile.FallbackActive = true
+		profile.FallbackAuthIndexes = append([]string(nil), current.FallbackAuthIndexes...)
+	} else if exists && fallbackMode == nil && fallbackProfileID == nil {
+		profile.FallbackActive = current.FallbackActive
+		profile.FallbackAuthIndexes = append([]string(nil), current.FallbackAuthIndexes...)
+	}
+	if !exists && len(s.profiles) >= maxProfiles {
 		return Profile{}, errors.New("proxy profile limit reached")
 	}
 	if duplicateRemark(s.profiles, id, remark) {
@@ -402,6 +579,9 @@ func (s *Store) Upsert(id, remark, rawURL string) (Profile, error) {
 	}
 	next := cloneProfiles(s.profiles)
 	next[id] = profile
+	if err := validateFallbackGraph(next); err != nil {
+		return Profile{}, err
+	}
 	if err := s.atomicWrite(next); err != nil {
 		s.lastError = err
 		return Profile{}, err
@@ -415,8 +595,17 @@ func (s *Store) Delete(id string) error {
 	id = strings.TrimSpace(id)
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if _, ok := s.profiles[id]; !ok {
+	profile, ok := s.profiles[id]
+	if !ok {
 		return ErrNotFound
+	}
+	if profile.FallbackActive {
+		return ErrActiveFallback
+	}
+	for profileID, profile := range s.profiles {
+		if profileID != id && profile.FallbackMode == domain.FallbackProfile && profile.FallbackProfileID == id {
+			return ErrReferenced
+		}
 	}
 	next := cloneProfiles(s.profiles)
 	delete(next, id)
@@ -430,15 +619,122 @@ func (s *Store) Delete(id string) error {
 }
 
 func (s *Store) projection(profile storedProfile) domain.ProxyProfileProjection {
+	projection := domain.ProxyProfileProjection{ID: profile.ID, Remark: profile.Remark, FallbackMode: profile.FallbackMode}
+	if projection.FallbackMode == "" {
+		projection.FallbackMode = domain.FallbackNone
+	}
+	if profile.FallbackActive {
+		projection.FallbackState = "active"
+		projection.FallbackOriginalRemark = profile.Remark
+		projection.FallbackAffectedCount = len(profile.FallbackAuthIndexes)
+	} else if projection.FallbackMode != domain.FallbackNone {
+		projection.FallbackState = "configured"
+	} else {
+		projection.FallbackState = "none"
+	}
+	if backup, ok := s.profiles[profile.FallbackProfileID]; ok && profile.FallbackMode == domain.FallbackProfile {
+		projection.FallbackProfileRemark = backup.Remark
+	}
 	validated, err := proxy.Validate(profile.ProxyURL)
 	if err != nil {
-		return domain.ProxyProfileProjection{ID: profile.ID, Remark: profile.Remark}
+		return projection
 	}
-	return domain.ProxyProfileProjection{ID: profile.ID, Remark: profile.Remark, Endpoint: validated.Projection.Endpoint, Scheme: validated.Projection.Scheme, Host: validated.Projection.Host, Port: validated.Projection.Port}
+	projection.Endpoint = validated.Projection.Endpoint
+	projection.Scheme = validated.Projection.Scheme
+	projection.Host = validated.Projection.Host
+	projection.Port = validated.Projection.Port
+	return projection
 }
 
 func (s *Store) toProfile(profile storedProfile) Profile {
-	return Profile{ID: profile.ID, Remark: profile.Remark, ProxyURL: profile.ProxyURL, Projection: s.projection(profile)}
+	return Profile{ID: profile.ID, Remark: profile.Remark, ProxyURL: profile.ProxyURL, FallbackMode: profile.FallbackMode, FallbackProfileID: profile.FallbackProfileID, FallbackAuthIndexes: append([]string(nil), profile.FallbackAuthIndexes...), Projection: s.projection(profile)}
+}
+
+// MarkFallback records a confirmed management-layer fallback for the supplied
+// credential indexes. It does not intercept or alter CPA request routing.
+func (s *Store) MarkFallback(id string, authIndexes []string) error {
+	return s.updateFallbackState(id, authIndexes, true)
+}
+
+// ClearFallback removes only the supplied credentials from a profile's active
+// fallback state. An empty active set returns the profile to configured state.
+func (s *Store) ClearFallback(id string, authIndexes []string) error {
+	return s.updateFallbackState(id, authIndexes, false)
+}
+
+func (s *Store) updateFallbackState(id string, authIndexes []string, activate bool) error {
+	id = strings.TrimSpace(id)
+	indexes := normalizeAuthIndexes(authIndexes)
+	if len(indexes) == 0 {
+		return ErrInvalid
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	profile, ok := s.profiles[id]
+	if !ok {
+		return ErrNotFound
+	}
+	if profile.FallbackMode == "" || profile.FallbackMode == domain.FallbackNone {
+		return ErrInvalid
+	}
+	next := cloneProfiles(s.profiles)
+	current := append([]string(nil), profile.FallbackAuthIndexes...)
+	if activate {
+		current = appendUnique(current, indexes...)
+		profile.FallbackActive = true
+	} else {
+		current = removeIndexes(current, indexes)
+		profile.FallbackActive = len(current) > 0
+	}
+	profile.FallbackAuthIndexes = current
+	profile.UpdatedAt = s.now().UTC()
+	next[id] = profile
+	if err := validateFallbackGraph(next); err != nil {
+		return err
+	}
+	if err := s.atomicWrite(next); err != nil {
+		s.lastError = err
+		return err
+	}
+	s.profiles = next
+	s.lastError = nil
+	return nil
+}
+
+func normalizeAuthIndexes(indexes []string) []string {
+	seen := make(map[string]struct{}, len(indexes))
+	out := make([]string, 0, len(indexes))
+	for _, value := range indexes {
+		value = strings.TrimSpace(value)
+		if value == "" || len(value) > 256 || strings.ContainsAny(value, "\x00\r\n") {
+			continue
+		}
+		if _, ok := seen[value]; ok {
+			continue
+		}
+		seen[value] = struct{}{}
+		out = append(out, value)
+	}
+	sort.Strings(out)
+	return out
+}
+
+func appendUnique(base []string, values ...string) []string {
+	return normalizeAuthIndexes(append(append([]string(nil), base...), values...))
+}
+
+func removeIndexes(base, remove []string) []string {
+	blocked := make(map[string]struct{}, len(remove))
+	for _, value := range remove {
+		blocked[value] = struct{}{}
+	}
+	kept := make([]string, 0, len(base))
+	for _, value := range base {
+		if _, ok := blocked[value]; !ok {
+			kept = append(kept, value)
+		}
+	}
+	return normalizeAuthIndexes(kept)
 }
 
 func (s *Store) atomicWrite(next map[string]storedProfile) error {

@@ -11,6 +11,10 @@ import (
 const (
 	SchemaVersion = 1
 
+	FallbackNone    = "none"
+	FallbackDirect  = "direct"
+	FallbackProfile = "profile"
+
 	maxQuotaWindows = 32
 	maxWakeAttempts = 3
 
@@ -69,7 +73,7 @@ func SafeCode(value string) string {
 		return ""
 	}
 	switch value {
-	case "codex_usage_limit_reached", "codex_quota_evidence", "codex_generic_rate_limit", "oversized_failure", "bare_429", "invalid_failure", "non_quota_failure", "recovery_error", "host_error", "unverifiable_pending_enable", "disable_revision_unavailable", "post_enable_revision_unavailable", "post_enable_guard_unavailable", "redisable_failed", "redisable_revision_unavailable", "ownership_guard_failed", "probe_unavailable", "probe_error", "missing_access_token", "health_client_unavailable", "proxy_setup_failed", "request_failed", "timeout", "connection_failed", "canceled", "empty_response", "response_read_failed", "response_too_large", "auth_failed", "unexpected_status", "invalid_inventory", "quota_exhausted", "save_failed", "revision_unavailable", "stale_preview", "post_save_mismatch", "unknown_phase", "reachable", "target_rate_limited", "target_challenge", "target_unexpected_status", "target_invalid", "profile_not_found", "quota_probe_disabled", "quota_query_failed", "quota_query_in_progress", "quota_unknown", "codex_credential_not_found", "wake_disabled", "wake_auth_failed", "wake_quota_exhausted", "wake_protocol_failed", "wake_request_failed", "wake_manual_review", "wake_success", "usage_confirmed", "usage_unknown", "target_reachable_non_success":
+	case "codex_usage_limit_reached", "codex_quota_evidence", "codex_generic_rate_limit", "oversized_failure", "bare_429", "invalid_failure", "non_quota_failure", "recovery_error", "host_error", "unverifiable_pending_enable", "disable_revision_unavailable", "post_enable_revision_unavailable", "post_enable_guard_unavailable", "redisable_failed", "redisable_revision_unavailable", "ownership_guard_failed", "probe_unavailable", "probe_error", "missing_access_token", "health_client_unavailable", "proxy_setup_failed", "request_failed", "timeout", "connection_failed", "canceled", "empty_response", "response_read_failed", "response_too_large", "auth_failed", "unexpected_status", "invalid_inventory", "quota_exhausted", "save_failed", "revision_unavailable", "stale_preview", "post_save_mismatch", "unknown_phase", "reachable", "target_rate_limited", "target_challenge", "target_unexpected_status", "target_invalid", "profile_not_found", "quota_probe_disabled", "quota_query_failed", "quota_query_in_progress", "quota_unknown", "codex_credential_not_found", "wake_disabled", "wake_auth_failed", "wake_quota_exhausted", "wake_protocol_failed", "wake_request_failed", "wake_manual_review", "wake_success", "usage_confirmed", "usage_unknown", "target_reachable_non_success", "profile_in_use", "invalid_fallback_request", "fallback_not_configured", "fallback_not_active", "fallback_active":
 		return value
 	default:
 		return "unknown"
@@ -335,12 +339,17 @@ type CredentialObservation struct {
 // supplied remark and a redacted endpoint; proxy credentials never cross the
 // management boundary.
 type ProxyProfileProjection struct {
-	ID       string `json:"id"`
-	Remark   string `json:"remark"`
-	Endpoint string `json:"endpoint"`
-	Scheme   string `json:"scheme,omitempty"`
-	Host     string `json:"host,omitempty"`
-	Port     string `json:"port,omitempty"`
+	ID                     string `json:"id"`
+	Remark                 string `json:"remark"`
+	Endpoint               string `json:"endpoint"`
+	Scheme                 string `json:"scheme,omitempty"`
+	Host                   string `json:"host,omitempty"`
+	Port                   string `json:"port,omitempty"`
+	FallbackMode           string `json:"fallback_mode,omitempty"`
+	FallbackProfileRemark  string `json:"fallback_profile_remark,omitempty"`
+	FallbackState          string `json:"fallback_state,omitempty"`
+	FallbackOriginalRemark string `json:"fallback_original_remark,omitempty"`
+	FallbackAffectedCount  int    `json:"fallback_affected_count,omitempty"`
 }
 
 // ProxyProjection is the only proxy representation crossing the management
