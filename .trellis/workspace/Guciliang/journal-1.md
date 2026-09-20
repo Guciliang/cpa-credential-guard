@@ -183,3 +183,26 @@ Implemented the approved Credential Guard sidebar repair without committing or p
 ### Status
 
 [READY] **实现与质量检查完成；未创建 commit、tag、push 或远程变更，等待单独提交批准**
+
+
+## Session 5: Credential Guard sidebar audit finish
+<!-- trellis-session: v=2 fp=7bef4fe40598d7c1 -->
+
+**Date**: 2026-09-20
+**Task**: Credential Guard sidebar audit finish
+**Branch**: `main`
+
+### Summary
+
+完成 Credential Guard 侧边栏修正：按 Sub2API 管理表格模式重构凭证横向表格，加入即时 Toast/预览与代理检测弹窗、安全代理编辑和显式回退/恢复流程，收紧回退归属校验与 auth_index 控制字符校验；通过 go test、race、vet、静态/浏览器检查和嵌入资源同步检查。已提交代码与 journal，未 push、打 tag 或触发 GitHub Actions。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `4d9c076` | fix: refine credential guard sidebar and proxy fallback |
+| `eeae59f` | chore: record credential guard sidebar verification |
+
+### Status
+
+[OK] **Completed**
