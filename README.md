@@ -19,14 +19,14 @@ make build
 
 本地编译用于开发和隔离的 CPA 测试。正常安装使用 GitHub Actions 构建与目标平台匹配的动态库，并发布 CPA 插件商店所需的 Release 资产。
 
-发布工作流由类似 `v0.1.7` 的 Git tag 触发，并生成以下文件：
+发布工作流由类似 `v0.1.8` 的 Git tag 触发，并生成以下文件：
 
 ```text
-cpa-credential-guard_0.1.7_linux_amd64.zip
-cpa-credential-guard_0.1.7_linux_arm64.zip
-cpa-credential-guard_0.1.7_darwin_amd64.zip
-cpa-credential-guard_0.1.7_darwin_arm64.zip
-cpa-credential-guard_0.1.7_windows_amd64.zip
+cpa-credential-guard_0.1.8_linux_amd64.zip
+cpa-credential-guard_0.1.8_linux_arm64.zip
+cpa-credential-guard_0.1.8_darwin_amd64.zip
+cpa-credential-guard_0.1.8_darwin_arm64.zip
+cpa-credential-guard_0.1.8_windows_amd64.zip
 checksums.txt
 ```
 
@@ -55,8 +55,8 @@ https://raw.githubusercontent.com/Guciliang/cpa-credential-guard/main/registry.j
 发布新版本时，在工作流已经提交后执行：
 
 ```sh
-git tag v0.1.7
-git push origin v0.1.7
+git tag v0.1.8
+git push origin v0.1.8
 ```
 
 tag 和 push 命令会改变远程仓库，必须由仓库所有者执行。Docker 部署必须使用与容器操作系统和 CPU 架构匹配的构建产物，并且 `state_dir` 必须位于已持久化的 CPA 插件目录中。

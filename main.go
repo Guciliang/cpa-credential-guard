@@ -252,7 +252,7 @@ func shutdownController() {
 }
 
 var (
-	pluginVersion    = "0.1.7"
+	pluginVersion    = "0.1.8"
 	pluginRepository = "https://github.com/Guciliang/cpa-credential-guard"
 )
 
