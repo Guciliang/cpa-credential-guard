@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"cpa-credential-guard/internal/config"
+	"cpa-credential-guard/internal/domain"
 	"github.com/router-for-me/CLIProxyAPI/v7/sdk/pluginapi"
 )
 
@@ -74,6 +75,60 @@ func TestProcessUsageDisablesOnlyClassifiedCodexCredential(t *testing.T) {
 		t.Fatalf("bare 429 caused save=%d", h.saves)
 	}
 }
+func TestProcessUsageRecordsNormalCodexUseSeparatelyFromQuotaDetection(t *testing.T) {
+	h := newAppHost()
+	cfg := config.Config{Enabled: true, StateDir: "internal/.test-app-state-usage", ScanInterval: 10 * time.Minute, InitialBackoff: time.Minute, MaxBackoff: time.Hour, ProbeProvider: "codex", ProbeTimeout: time.Second, QuotaDetectionEnabled: false, DetectHTTP429: true}
+	t.Cleanup(func() { _ = os.RemoveAll(cfg.StateDir) })
+	controller, err := New(context.Background(), cfg, h)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer controller.Shutdown()
+	requestedAt := time.Unix(123, 0).UTC()
+	snap, err := controller.repo.Snapshot(context.Background(), "a-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := controller.store.Update(func(next *domain.State) error {
+		next.Observations["codex:a-1"] = domain.CredentialObservation{AuthIndex: "a-1", IdentityHash: snap.ContentHashWithoutDisabled, Quota: &domain.QuotaObservation{AuthIndex: "a-1", IdentityHash: snap.ContentHashWithoutDisabled, Status: domain.QuotaExhausted, ResetAt: requestedAt.Add(-time.Hour)}}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	record := pluginapi.UsageRecord{Provider: "codex", AuthIndex: "a-1", Generate: true, RequestedAt: requestedAt}
+	if err := controller.ProcessUsage(context.Background(), record); err != nil {
+		t.Fatal(err)
+	}
+	observation, ok := controller.store.GetObservation("codex:a-1")
+	if !ok || observation.Usage == nil || observation.Usage.Status != "normal_cpa_usage" || !observation.Usage.PostReset || !observation.Usage.LastUsedAt.Equal(requestedAt) {
+		t.Fatalf("observation=%#v ok=%v", observation, ok)
+	}
+	if h.saves != 0 {
+		t.Fatalf("normal usage changed Host credential, saves=%d", h.saves)
+	}
+}
+
+func TestProcessUsageRecordsFailedCodexUseAsUnknown(t *testing.T) {
+	h := newAppHost()
+	cfg := config.Config{Enabled: true, StateDir: "internal/.test-app-state-failed-usage", ScanInterval: 10 * time.Minute, InitialBackoff: time.Minute, MaxBackoff: time.Hour, ProbeProvider: "codex", ProbeTimeout: time.Second, QuotaDetectionEnabled: false}
+	t.Cleanup(func() { _ = os.RemoveAll(cfg.StateDir) })
+	controller, err := New(context.Background(), cfg, h)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer controller.Shutdown()
+	if err := controller.ProcessUsage(context.Background(), pluginapi.UsageRecord{Provider: "codex", AuthIndex: "a-1", Generate: true, Failed: true, RequestedAt: time.Unix(321, 0).UTC()}); err != nil {
+		t.Fatal(err)
+	}
+	observation, ok := controller.store.GetObservation("codex:a-1")
+	if !ok || observation.Usage == nil || observation.Usage.Status != domain.UsageRequestFailed {
+		t.Fatalf("observation=%#v ok=%v", observation, ok)
+	}
+	if h.saves != 0 {
+		t.Fatalf("failed usage changed Host credential, saves=%d", h.saves)
+	}
+}
+
 func TestProcessUsageRejectsCodexEventForNonCodexHostEntry(t *testing.T) {
 	h := newAppHost()
 	h.entry.Provider = "claude"

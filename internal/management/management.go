@@ -19,6 +19,7 @@ import (
 	"sync"
 	"time"
 
+	"cpa-credential-guard/internal/codexhealth"
 	"cpa-credential-guard/internal/config"
 	"cpa-credential-guard/internal/credentials"
 	"cpa-credential-guard/internal/domain"
@@ -37,6 +38,7 @@ const (
 )
 
 type RecoveryScanner interface{ Scan(context.Context) error }
+type WakeupScanner interface{ Scan(context.Context) error }
 type recoveryStatus interface{ Enabled() bool }
 
 type Service struct {
@@ -44,6 +46,8 @@ type Service struct {
 	repo         *credentials.Repository
 	store        *state.Store
 	recovery     RecoveryScanner
+	wakeup       WakeupScanner
+	quotaClient  *codexhealth.Client
 	checker      *proxy.Checker
 	profileStore *profiles.Store
 	plansMu      sync.Mutex
@@ -95,6 +99,14 @@ type proxyTestRequest struct {
 	Proxies    []string `json:"proxies,omitempty"` // retained for direct token-free tests
 	ProfileIDs []string `json:"profile_ids,omitempty"`
 }
+type quotaQueryItem struct {
+	AuthIndex string               `json:"auth_index"`
+	Status    string               `json:"status"`
+	ResetAt   time.Time            `json:"reset_at,omitempty"`
+	CheckedAt time.Time            `json:"checked_at,omitempty"`
+	Windows   []domain.QuotaWindow `json:"windows,omitempty"`
+	ErrorCode string               `json:"error_code,omitempty"`
+}
 type proxyProfileRequest struct {
 	ID       string `json:"id,omitempty"`
 	Remark   string `json:"remark"`
@@ -133,7 +145,16 @@ func NewWithClock(cfg config.Config, repo *credentials.Repository, store *state.
 	if now == nil {
 		now = time.Now
 	}
-	return &Service{cfg: cfg, repo: repo, store: store, recovery: recovery, checker: proxy.NewChecker(), plans: make(map[string]plan), now: now}
+	quotaClient := codexhealth.NewClient()
+	quotaClient.Timeout = cfg.ProbeTimeout
+	quotaClient.Now = now
+	return &Service{cfg: cfg, repo: repo, store: store, recovery: recovery, quotaClient: quotaClient, checker: proxy.NewChecker(), plans: make(map[string]plan), now: now}
+}
+func (s *Service) SetWakeupScanner(scanner WakeupScanner) { s.wakeup = scanner }
+func (s *Service) SetQuotaClient(client *codexhealth.Client) {
+	if client != nil {
+		s.quotaClient = client
+	}
 }
 func (s *Service) SetRouteHandler(handler pluginapi.ManagementHandler) {
 	if handler != nil {
@@ -173,8 +194,9 @@ func (s *Service) RegisterManagement(_ context.Context, req pluginapi.Management
 			{Method: http.MethodPost, Path: managementPrefix + "/proxy/profiles/delete", Description: "删除代理备注。", Handler: handler},
 			{Method: http.MethodPost, Path: managementPrefix + "/proxy/preview", Description: "应用前验证代理批次。", Handler: handler},
 			{Method: http.MethodPost, Path: managementPrefix + "/proxy/apply", Description: "应用已验证的代理计划。", Handler: handler},
-			{Method: http.MethodPost, Path: managementPrefix + "/proxy/test", Description: "测试无令牌代理连通性。", Handler: handler},
-			{Method: http.MethodPost, Path: managementPrefix + "/recovery/scan", Description: "扫描到期的插件所有权恢复记录。", Handler: handler},
+			{Method: http.MethodPost, Path: managementPrefix + "/proxy/test", Description: "测试固定非 Codex 目标的无令牌代理连通性。", Handler: handler},
+			{Method: http.MethodPost, Path: managementPrefix + "/quota/query", Description: "按用户操作查询 Codex 额度。", Handler: handler},
+			{Method: http.MethodPost, Path: managementPrefix + "/recovery/scan", Description: "扫描到期的插件所有权恢复记录和主动唤醒记录。", Handler: handler},
 		},
 		Resources: []pluginapi.ResourceRoute{{Path: "/index.html", Menu: "CPA 凭证守护", Description: "安全的凭证守护侧边栏。", Handler: &resourceHandler{}}},
 	}, nil
@@ -274,6 +296,17 @@ func (s *Service) HandleManagement(ctx context.Context, req pluginapi.Management
 			return jsonResponse(http.StatusUnsupportedMediaType, map[string]string{"error": "content_type_required"})
 		}
 		return s.test(ctx, req.Body)
+	case "/quota/query":
+		if req.Method != http.MethodPost {
+			return jsonResponse(http.StatusMethodNotAllowed, map[string]string{"error": "method_not_allowed"})
+		}
+		if !s.cfg.Enabled {
+			return jsonResponse(http.StatusForbidden, map[string]string{"error": "credential_guard_disabled"})
+		}
+		if !validJSONContentType(req.Headers) {
+			return jsonResponse(http.StatusUnsupportedMediaType, map[string]string{"error": "content_type_required"})
+		}
+		return s.queryQuota(ctx, req.Body)
 	case "/recovery/scan":
 		if req.Method != http.MethodPost {
 			return jsonResponse(http.StatusMethodNotAllowed, map[string]string{"error": "method_not_allowed"})
@@ -293,7 +326,7 @@ func (s *Service) status(ctx context.Context) (pluginapi.ManagementResponse, err
 		out.State.Available = true
 		out.State.CredentialCount = len(s.store.Snapshot().Credentials)
 	}
-	if s.repo == nil {
+	if !s.cfg.Enabled || s.repo == nil {
 		return jsonResponse(http.StatusOK, out)
 	}
 	entries, err := s.repo.List(ctx)
@@ -307,6 +340,8 @@ func (s *Service) status(ctx context.Context) (pluginapi.ManagementResponse, err
 		}
 		snap, err := s.repo.Snapshot(ctx, entry.AuthIndex)
 		if err != nil {
+			row := domain.CredentialProjection{AuthIndex: entry.AuthIndex, AuthID: entry.ID, FileName: entry.Name, Provider: entry.Provider, Label: entry.Label, ErrorCode: "host_error", Quota: domain.ProjectQuota(&domain.QuotaObservation{AuthIndex: entry.AuthIndex, Status: domain.QuotaUnknown, SafeError: "host_error"})}
+			out.Credentials = append(out.Credentials, row)
 			continue
 		}
 		proxyProjection := proxy.Redact(snap.ProxyURL)
@@ -314,13 +349,69 @@ func (s *Service) status(ctx context.Context) (pluginapi.ManagementResponse, err
 			proxyProjection.ProfileID = profile.ID
 			proxyProjection.Remark = profile.Remark
 		}
-		row := domain.CredentialProjection{AuthIndex: entry.AuthIndex, AuthID: entry.ID, FileName: snap.Name, Provider: entry.Provider, Label: entry.Label, Disabled: snap.Disabled, Proxy: proxyProjection}
+		row := domain.CredentialProjection{AuthIndex: entry.AuthIndex, AuthID: entry.ID, FileName: snap.Name, Provider: entry.Provider, Label: entry.Label, Disabled: snap.Disabled, Proxy: proxyProjection, Quota: domain.ProjectQuota(&domain.QuotaObservation{AuthIndex: entry.AuthIndex, Status: domain.QuotaUnknown})}
 		if s.store != nil {
-			if record, ok := s.store.Get("codex:" + entry.AuthIndex); ok {
-				row.Ownership = &domain.OwnershipSummary{Phase: record.Phase, DisabledAt: record.DisabledAt, ResetAt: record.ResetAt, NextCheckAt: record.NextCheckAt, BackoffLevel: record.BackoffLevel, LastReason: domain.SafeCode(record.LastReason), LastProbe: domain.SafeProbeSummary(record.LastProbe)}
+			if record, ok := s.store.Get("codex:" + entry.AuthIndex); ok && record.ContentHashWithoutDisabled == snap.ContentHashWithoutDisabled {
+				safeProbe := domain.SafeProbeSummary(record.LastProbe)
+				row.Ownership = &domain.OwnershipSummary{Phase: record.Phase, DisabledAt: record.DisabledAt, ResetAt: record.ResetAt, NextCheckAt: record.NextCheckAt, BackoffLevel: record.BackoffLevel, LastReason: domain.SafeCode(record.LastReason), LastProbe: safeProbe}
+				row.HealthCheck = safeProbe
+				if record.Quota != nil && record.Quota.IdentityHash == snap.ContentHashWithoutDisabled {
+					row.Quota = domain.ProjectQuota(record.Quota)
+				} else if safeProbe != nil {
+					// Older state files persisted only the health summary. Rebuild
+					// the safe quota projection without making a network request.
+					fallback := codexhealth.QuotaObservationFromProbe(entry.AuthIndex, snap.ContentHashWithoutDisabled, *safeProbe)
+					row.Quota = domain.ProjectQuota(&fallback)
+				}
+				if !record.ResetAt.IsZero() && row.Quota.Status == domain.QuotaUnknown {
+					// The ownership record itself is the identity-bound evidence
+					// created when quota exhaustion caused the guarded disable.
+					fallback := domain.QuotaObservation{AuthIndex: entry.AuthIndex, IdentityHash: snap.ContentHashWithoutDisabled, Status: domain.QuotaExhausted, ResetAt: record.ResetAt, CheckedAt: record.DisabledAt, SafeError: "quota_exhausted"}
+					row.Quota = domain.ProjectQuota(&fallback)
+				}
+				if record.InitialWakeup != nil && record.InitialWakeup.IdentityHash == snap.ContentHashWithoutDisabled {
+					row.InitialWakeup = domain.ProjectWakeup(record.InitialWakeup, domain.WakeupInitial)
+				}
+				if record.ResetWakeup != nil && record.ResetWakeup.IdentityHash == snap.ContentHashWithoutDisabled {
+					row.ResetWakeup = domain.ProjectWakeup(record.ResetWakeup, domain.WakeupReset)
+				}
+			}
+			if observation, ok := s.store.GetObservation("codex:" + entry.AuthIndex); ok {
+				if observation.IdentityHash == snap.ContentHashWithoutDisabled {
+					if observation.LastHealthCheck != nil {
+						row.HealthCheck = domain.SafeProbeSummary(observation.LastHealthCheck)
+					}
+					if observation.Quota != nil && observation.Quota.IdentityHash == snap.ContentHashWithoutDisabled {
+						row.Quota = domain.ProjectQuota(observation.Quota)
+					}
+					if observation.InitialWakeup != nil && observation.InitialWakeup.IdentityHash == snap.ContentHashWithoutDisabled {
+						row.InitialWakeup = domain.ProjectWakeup(observation.InitialWakeup, domain.WakeupInitial)
+					}
+					if observation.ResetWakeup != nil && observation.ResetWakeup.IdentityHash == snap.ContentHashWithoutDisabled {
+						row.ResetWakeup = domain.ProjectWakeup(observation.ResetWakeup, domain.WakeupReset)
+					}
+					if observation.Usage != nil && observation.Usage.IdentityHash == snap.ContentHashWithoutDisabled {
+						switch observation.Usage.Status {
+						case domain.UsageNormal:
+							row.UsageStatus = domain.UsageNormal
+							if observation.Usage.PostReset {
+								row.UsageStatus = "post_reset_cpa_usage"
+							}
+						case domain.UsageRequestFailed, domain.UsageUnknown, "unknown":
+							row.UsageStatus = observation.Usage.Status
+						}
+					}
+				}
 			}
 		}
+		if row.Quota == nil {
+			row.Quota = domain.ProjectQuota(&domain.QuotaObservation{AuthIndex: entry.AuthIndex, Status: domain.QuotaUnknown})
+		}
+		if !row.Quota.ResetAt.IsZero() && !row.Quota.ResetAt.After(s.now()) {
+			row.Quota.ResetAt = time.Time{}
+		}
 		out.Credentials = append(out.Credentials, row)
+		wipeCredentialJSON(snap.JSON)
 		if row.Proxy.Configured {
 			key := row.Proxy.ProfileID
 			if key == "" {
@@ -542,6 +633,7 @@ func (s *Service) preview(ctx context.Context, raw []byte) (pluginapi.Management
 			items = append(items, item)
 			continue
 		}
+		defer wipeCredentialJSON(snap.JSON)
 		item.Name = snap.Name
 		item.BaselineHash = snap.FullHash
 		item.HostRevision = snap.Revision
@@ -561,7 +653,8 @@ func (s *Service) preview(ctx context.Context, raw []byte) (pluginapi.Management
 		item.OldProjection = oldProjection
 		result.OldEndpoint = oldProjection.Endpoint
 		result.OldProfileRemark = oldProjection.Remark
-		if change.Clear && (change.ProxyURL != nil || strings.TrimSpace(change.ProfileID) != "" || change.Keep) {
+		profileID := strings.TrimSpace(change.ProfileID)
+		if (change.Keep && (change.Clear || change.ProxyURL != nil || profileID != "")) || (change.Clear && (change.ProxyURL != nil || profileID != "" || change.Keep)) {
 			item.ErrorCode = "ambiguous_proxy_change"
 			result.ErrorCode = item.ErrorCode
 			results = append(results, result)
@@ -695,6 +788,8 @@ func (s *Service) apply(ctx context.Context, raw []byte) (pluginapi.ManagementRe
 			continue
 		}
 		mutation, err := s.repo.SetProxy(ctx, item.AuthIndex, item.RawURL, item.Clear, credentials.Guard{FullHash: item.BaselineHash, HostRevision: item.HostRevision, RequireRuntime: true})
+		defer wipeCredentialJSON(mutation.Before.JSON)
+		defer wipeCredentialJSON(mutation.After.JSON)
 		if err != nil {
 			result.ErrorCode = safeMutationError(err)
 			results = append(results, result)
@@ -739,41 +834,265 @@ func (s *Service) test(ctx context.Context, raw []byte) (pluginapi.ManagementRes
 		return jsonResponse(http.StatusServiceUnavailable, map[string]string{"error": "profile_store_unavailable"})
 	}
 	checker := s.checkerForRequest()
-	results := make([]domain.BatchItemResult, 0, len(request.Proxies)+len(request.ProfileIDs))
+	started := time.Now()
+	items := make([]domain.ProxyTestItem, 0, (len(request.Proxies)+len(request.ProfileIDs))*len(proxy.FixedTargetIDs()))
+	addQuality := func(profileID, profileRemark string, quality proxy.QualityResult) {
+		for _, target := range quality.Items {
+			items = append(items, domain.ProxyTestItem{ProfileID: profileID, ProfileRemark: profileRemark, Endpoint: quality.Projection.Endpoint, Target: target.Target, Status: target.Status, OK: target.Status == "pass", Reachable: target.Reachable, HTTPStatus: target.HTTPStatus, LatencyMS: target.Latency.Milliseconds(), ErrorCode: target.ErrorCode, Message: target.Message})
+		}
+	}
 	for _, profileID := range request.ProfileIDs {
 		profile, ok := s.profileStore.Get(strings.TrimSpace(profileID))
 		if !ok {
-			results = append(results, domain.BatchItemResult{ProfileID: strings.TrimSpace(profileID), ErrorCode: "profile_not_found"})
+			items = append(items, domain.ProxyTestItem{ProfileID: strings.TrimSpace(profileID), Status: "fail", ErrorCode: "profile_not_found", Message: "代理备注不存在"})
 			continue
 		}
-		checkResult := checker.Check(ctx, profile.ProxyURL)
-		results = append(results, domain.BatchItemResult{ProfileID: profile.ID, ProfileRemark: profile.Remark, Endpoint: checkResult.Projection.Endpoint, Reachable: checkResult.Reachable, HTTPStatus: checkResult.HTTPStatus, LatencyMS: checkResult.Latency.Milliseconds(), OK: checkResult.Reachable, ErrorCode: checkResult.ErrorCode})
+		addQuality(profile.ID, profile.Remark, checker.CheckQuality(ctx, profile.ProxyURL))
 	}
 	for _, rawProxy := range request.Proxies {
-		checkResult := checker.Check(ctx, rawProxy)
 		profileID, profileRemark := "", ""
 		if profile, ok := s.matchProfile(rawProxy); ok {
 			profileID, profileRemark = profile.ID, profile.Remark
 		}
-		results = append(results, domain.BatchItemResult{ProfileID: profileID, ProfileRemark: profileRemark, Endpoint: checkResult.Projection.Endpoint, Reachable: checkResult.Reachable, HTTPStatus: checkResult.HTTPStatus, LatencyMS: checkResult.Latency.Milliseconds(), OK: checkResult.Reachable, ErrorCode: checkResult.ErrorCode})
+		addQuality(profileID, profileRemark, checker.CheckQuality(ctx, rawProxy))
 	}
-	return jsonResponse(http.StatusOK, map[string]any{"items": results})
+	summary := domain.ProxyTestSummary{Total: len(items)}
+	for _, item := range items {
+		switch item.Status {
+		case "pass":
+			summary.Passed++
+		case "warn", "challenge":
+			summary.Warned++
+		default:
+			summary.Failed++
+		}
+	}
+	summary.ElapsedMS = time.Since(started).Milliseconds()
+	return jsonResponse(http.StatusOK, map[string]any{"items": items, "summary": summary})
 }
+func (s *Service) queryQuota(ctx context.Context, raw []byte) (pluginapi.ManagementResponse, error) {
+	if len(raw) > MaxManagementBody {
+		return jsonResponse(http.StatusRequestEntityTooLarge, map[string]string{"error": "body_too_large"})
+	}
+	if !s.cfg.ProbeEnabled {
+		return jsonResponse(http.StatusOK, map[string]any{"items": []quotaQueryItem{}, "error": "quota_probe_disabled"})
+	}
+	if s.repo == nil || s.store == nil || s.quotaClient == nil {
+		return jsonResponse(http.StatusServiceUnavailable, map[string]string{"error": "host_unavailable"})
+	}
+	var payload map[string]json.RawMessage
+	if err := decodeBody(raw, &payload); err != nil || payload == nil || len(payload) > 1 {
+		return jsonResponse(http.StatusBadRequest, map[string]string{"error": "invalid_json"})
+	}
+	requestAuthIndex := ""
+	if len(payload) > 0 {
+		value, present := payload["auth_index"]
+		if !present {
+			return jsonResponse(http.StatusBadRequest, map[string]string{"error": "invalid_json"})
+		}
+		if err := json.Unmarshal(value, &requestAuthIndex); err != nil || strings.TrimSpace(requestAuthIndex) == "" {
+			return jsonResponse(http.StatusBadRequest, map[string]string{"error": "invalid_json"})
+		}
+		requestAuthIndex = strings.TrimSpace(requestAuthIndex)
+		if len(requestAuthIndex) > 256 {
+			return jsonResponse(http.StatusBadRequest, map[string]string{"error": "invalid_json"})
+		}
+	}
+	entries, err := s.repo.List(ctx)
+	if err != nil {
+		return jsonResponse(http.StatusServiceUnavailable, map[string]string{"error": "host_unavailable"})
+	}
+	type target struct {
+		index     string
+		errorCode string
+	}
+	counts := make(map[string]int, len(entries))
+	codexEntries := make(map[string]bool, len(entries))
+	for _, entry := range entries {
+		index := strings.TrimSpace(entry.AuthIndex)
+		if index == "" {
+			continue
+		}
+		counts[index]++
+		if isCodex(entry.Provider, entry.Type) {
+			codexEntries[index] = true
+		}
+	}
+	targets := make([]target, 0, len(entries))
+	if requestAuthIndex != "" {
+		if counts[requestAuthIndex] > 1 {
+			return jsonResponse(http.StatusOK, map[string]any{"items": []quotaQueryItem{{AuthIndex: requestAuthIndex, Status: domain.QuotaUnknown, ErrorCode: "duplicate_auth_index"}}})
+		}
+		if counts[requestAuthIndex] == 0 || !codexEntries[requestAuthIndex] {
+			return jsonResponse(http.StatusOK, map[string]any{"items": []quotaQueryItem{{AuthIndex: requestAuthIndex, Status: domain.QuotaUnknown, ErrorCode: "codex_credential_not_found"}}})
+		}
+		targets = append(targets, target{index: requestAuthIndex})
+	} else {
+		seen := make(map[string]struct{}, len(entries))
+		for _, entry := range entries {
+			index := strings.TrimSpace(entry.AuthIndex)
+			if !isCodex(entry.Provider, entry.Type) || index == "" {
+				continue
+			}
+			if _, exists := seen[index]; exists {
+				continue
+			}
+			seen[index] = struct{}{}
+			target := target{index: index}
+			if counts[index] > 1 {
+				target.errorCode = "duplicate_auth_index"
+			}
+			targets = append(targets, target)
+		}
+		sort.Slice(targets, func(i, j int) bool { return targets[i].index < targets[j].index })
+	}
+	items := make([]quotaQueryItem, len(targets))
+	// The per-auth repository lock is the important safety boundary. Queries
+	// are deliberately bounded to four workers; each worker reads a fresh Host
+	// snapshot and stores only a sanitized observation. A worker pool keeps the
+	// global "all credentials" action bounded even when the Host contains many
+	// entries, while preserving deterministic response ordering.
+	if len(targets) == 0 {
+		return jsonResponse(http.StatusOK, map[string]any{"items": []quotaQueryItem{}})
+	}
+	jobs := make(chan int)
+	workerCount := 4
+	if len(targets) < workerCount {
+		workerCount = len(targets)
+	}
+	var wg sync.WaitGroup
+	for worker := 0; worker < workerCount; worker++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for index := range jobs {
+				item := targets[index]
+				if item.errorCode != "" {
+					items[index] = quotaQueryItem{AuthIndex: item.index, Status: domain.QuotaUnknown, ErrorCode: item.errorCode}
+					continue
+				}
+				items[index] = s.queryQuotaOne(ctx, item.index)
+			}
+		}()
+	}
+	for index := range targets {
+		jobs <- index
+	}
+	close(jobs)
+	wg.Wait()
+	return jsonResponse(http.StatusOK, map[string]any{"items": items})
+}
+
+func (s *Service) queryQuotaOne(ctx context.Context, authIndex string) quotaQueryItem {
+	item := quotaQueryItem{AuthIndex: authIndex, Status: domain.QuotaUnknown}
+	var observation domain.QuotaObservation
+	var saveErr error
+	err := s.repo.WithLock(ctx, authIndex, func() error {
+		snap, err := s.repo.Snapshot(ctx, authIndex)
+		if err != nil {
+			item.ErrorCode = "host_error"
+			return nil
+		}
+		defer wipeCredentialJSON(snap.JSON)
+		identityHash := snap.ContentHashWithoutDisabled
+		summary, probeErr := s.quotaClient.Probe(ctx, snap.JSON)
+		if probeErr != nil {
+			checkedAt := s.now().UTC()
+			observation = domain.QuotaObservation{AuthIndex: authIndex, IdentityHash: identityHash, Status: domain.QuotaUnknown, CheckedAt: checkedAt, SafeError: "quota_query_failed"}
+		} else {
+			observation = codexhealth.QuotaObservationFromProbe(authIndex, identityHash, summary)
+		}
+		item.Status = observation.Status
+		item.ResetAt = observation.ResetAt
+		item.CheckedAt = observation.CheckedAt
+		item.Windows = observation.Windows
+		item.ErrorCode = observation.SafeError
+		if observation.AuthIndex == "" {
+			if item.ErrorCode == "" {
+				item.ErrorCode = "quota_query_failed"
+			}
+			return nil
+		}
+		saveErr = s.store.Update(func(next *domain.State) error {
+			if next.Observations == nil {
+				next.Observations = map[string]domain.CredentialObservation{}
+			}
+			key := "codex:" + authIndex
+			current := next.Observations[key]
+			if current.IdentityHash != "" && current.IdentityHash != observation.IdentityHash {
+				current = domain.CredentialObservation{}
+			}
+			current.AuthIndex = authIndex
+			current.IdentityHash = observation.IdentityHash
+			current.Quota = &observation
+			next.Observations[key] = current
+			if record, ok := next.Credentials[key]; ok {
+				record.Quota = &observation
+				next.Credentials[key] = record
+			}
+			return nil
+		})
+		return nil
+	})
+	if err != nil {
+		if errors.Is(err, context.Canceled) {
+			item.ErrorCode = "canceled"
+		} else if errors.Is(err, context.DeadlineExceeded) {
+			item.ErrorCode = "timeout"
+		} else {
+			item.ErrorCode = "quota_query_failed"
+		}
+		return item
+	}
+	if item.ErrorCode == "host_error" || observation.AuthIndex == "" {
+		if item.ErrorCode == "" {
+			item.ErrorCode = "quota_query_failed"
+		}
+		return item
+	}
+	if saveErr != nil {
+		item.Status = domain.QuotaUnknown
+		item.ErrorCode = "save_failed"
+	}
+	return item
+}
+
+func wipeCredentialJSON(value []byte) {
+	for index := range value {
+		value[index] = 0
+	}
+}
+
 func (s *Service) scan(ctx context.Context) (pluginapi.ManagementResponse, error) {
 	if !s.cfg.Enabled {
 		return jsonResponse(http.StatusForbidden, map[string]any{"started": false, "error": "credential_guard_disabled"})
 	}
-	if !s.cfg.RecoveryEnabled || !s.cfg.ProbeEnabled {
-		return jsonResponse(http.StatusOK, map[string]any{"started": false, "error": "recovery_disabled"})
+	started := false
+	incomplete := false
+	// Keep the consuming reset wake ahead of the read-only recovery probe so
+	// the due scan observes the persisted reset window before recovery can
+	// retire or replace its ownership record.
+	if s.wakeup != nil {
+		if status, ok := s.wakeup.(recoveryStatus); !ok || status.Enabled() {
+			started = true
+			if err := s.wakeup.Scan(ctx); err != nil {
+				incomplete = true
+			}
+		}
 	}
-	if s.recovery == nil {
-		return jsonResponse(http.StatusOK, map[string]any{"started": false, "error": "recovery_unavailable"})
+	if s.cfg.RecoveryEnabled && s.cfg.ProbeEnabled && s.recovery != nil {
+		if status, ok := s.recovery.(recoveryStatus); !ok || status.Enabled() {
+			started = true
+			if err := s.recovery.Scan(ctx); err != nil {
+				incomplete = true
+			}
+		}
 	}
-	if status, ok := s.recovery.(recoveryStatus); ok && !status.Enabled() {
-		return jsonResponse(http.StatusOK, map[string]any{"started": false, "error": "recovery_disabled"})
+	if !started {
+		return jsonResponse(http.StatusOK, map[string]any{"started": false, "error": "scan_disabled"})
 	}
-	if err := s.recovery.Scan(ctx); err != nil {
-		return jsonResponse(http.StatusOK, map[string]any{"started": false, "error": "scan_incomplete"})
+	if incomplete {
+		return jsonResponse(http.StatusOK, map[string]any{"started": true, "error": "scan_incomplete"})
 	}
 	return jsonResponse(http.StatusOK, map[string]any{"started": true})
 }

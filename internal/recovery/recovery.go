@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"cpa-credential-guard/internal/codexhealth"
 	"cpa-credential-guard/internal/credentials"
 	"cpa-credential-guard/internal/domain"
 	"cpa-credential-guard/internal/state"
@@ -48,9 +49,6 @@ func NewWithClock(store *state.Store, repo *credentials.Repository, prober Probe
 	if now == nil {
 		now = time.Now
 	}
-	if cfg.ScanInterval < 10*time.Minute {
-		cfg.ScanInterval = 10 * time.Minute
-	}
 	if cfg.InitialBackoff <= 0 {
 		cfg.InitialBackoff = 15 * time.Minute
 	}
@@ -76,7 +74,7 @@ func (m *Manager) Start(parent context.Context) {
 	}
 	m.workerMu.Lock()
 	defer m.workerMu.Unlock()
-	if m.cancel != nil || !m.cfg.Enabled || m.store == nil || m.repo == nil || !m.cfg.ProbeEnabled {
+	if m.cancel != nil || !m.cfg.Enabled || m.store == nil || m.repo == nil || !m.cfg.ProbeEnabled || m.cfg.ScanInterval <= 0 {
 		return
 	}
 	ctx, cancel := context.WithCancel(parent)
@@ -119,6 +117,7 @@ func (m *Manager) Scan(ctx context.Context) error {
 	if m == nil || m.store == nil || m.repo == nil || !m.cfg.Enabled || !m.cfg.ProbeEnabled {
 		return nil
 	}
+	var scanErr error
 	for key, record := range m.store.Snapshot().Credentials {
 		if !m.due(record) {
 			continue
@@ -129,11 +128,17 @@ func (m *Manager) Scan(ctx context.Context) error {
 				return err
 			}
 			// Individual credentials are independent. Keep scanning and leave a
-			// safe record rather than aborting a batch on one Host error.
-			_ = m.recordSafeError(key, record, "host_error")
+			// safe record rather than aborting a batch on one Host error. Return
+			// the first safe error after the batch so callers can report that the
+			// scan was incomplete without hiding later credentials' results.
+			if safeErr := m.recordSafeError(key, record, "host_error"); safeErr != nil && scanErr == nil {
+				scanErr = safeErr
+			} else if scanErr == nil {
+				scanErr = err
+			}
 		}
 	}
-	return nil
+	return scanErr
 }
 
 func (m *Manager) due(record domain.OwnershipRecord) bool {
@@ -152,6 +157,7 @@ func (m *Manager) processLocked(ctx context.Context, key string) error {
 	if err != nil {
 		return err
 	}
+	defer wipeCredentialJSON(snap.JSON)
 	if snap.AuthIndex != record.AuthIndex || (record.AuthID != "" && snap.Runtime.ID != "" && snap.Runtime.ID != record.AuthID) || (record.FileName != "" && snap.Name != "" && snap.Name != record.FileName) {
 		return m.retire(key)
 	}
@@ -211,9 +217,17 @@ func (m *Manager) startRecoveryLocked(ctx context.Context, key string, record do
 	}); err != nil {
 		return err
 	}
-	pending, _ := m.store.Get(key)
+	pending, ok := m.store.Get(key)
+	if !ok {
+		// The ownership record may have been retired while the state transition
+		// was being committed. Never mutate a credential without the durable
+		// record that authorizes this recovery attempt.
+		return nil
+	}
 	guard := credentials.Guard{ContentHashWithoutDisabled: record.ContentHashWithoutDisabled, HostRevision: credentials.RuntimeRevision(record.PluginSaveHostRevision), RequireRuntime: true}
 	result, err := m.repo.SetDisabledLocked(ctx, record.AuthIndex, false, guard)
+	defer wipeCredentialJSON(result.Before.JSON)
+	defer wipeCredentialJSON(result.After.JSON)
 	if err != nil {
 		return m.retryOrReview(key, pending, nil, err)
 	}
@@ -233,11 +247,15 @@ func (m *Manager) startRecoveryLocked(ctx context.Context, key string, record do
 	}); err != nil {
 		return err
 	}
-	pending, _ = m.store.Get(key)
+	pending, ok = m.store.Get(key)
+	if !ok {
+		return nil
+	}
 	return m.probeLocked(ctx, key, pending, result.After)
 }
 
 func (m *Manager) probeLocked(ctx context.Context, key string, record domain.OwnershipRecord, snap credentials.Snapshot) error {
+	defer wipeCredentialJSON(snap.JSON)
 	if !m.proberIsAvailable() {
 		// A pending enable without a probe adapter is still a failed attempt;
 		// fail closed through the guarded re-disable path below.
@@ -278,6 +296,7 @@ func (m *Manager) probeLocked(ctx context.Context, key string, record domain.Own
 		if getErr != nil {
 			return getErr
 		}
+		defer wipeCredentialJSON(current.JSON)
 		if !current.RuntimeOK || current.Revision == "" || current.ContentHashWithoutDisabled == "" {
 			return m.manualReview(key, record, "post_enable_guard_unavailable")
 		}
@@ -286,6 +305,9 @@ func (m *Manager) probeLocked(ctx context.Context, key string, record domain.Own
 		}
 		if !guardMatchesPostEnable(current, record) {
 			return m.retire(key)
+		}
+		if err := m.recordHealthCheck(key, record.AuthIndex, current.ContentHashWithoutDisabled, summary); err != nil {
+			return err
 		}
 		return m.retire(key)
 	}
@@ -297,6 +319,7 @@ func (m *Manager) finishFailedProbe(ctx context.Context, key string, record doma
 	if getErr != nil {
 		return getErr
 	}
+	defer wipeCredentialJSON(current.JSON)
 	if !current.RuntimeOK || current.Revision == "" || current.ContentHashWithoutDisabled == "" {
 		return m.manualReview(key, record, "post_enable_guard_unavailable")
 	}
@@ -307,10 +330,12 @@ func (m *Manager) finishFailedProbe(ctx context.Context, key string, record doma
 		return m.retire(key)
 	}
 	result, saveErr := m.repo.SetDisabledLocked(ctx, record.AuthIndex, true, credentials.Guard{ContentHashWithoutDisabled: record.PostEnableHashWithoutDisabled, HostRevision: credentials.RuntimeRevision(record.PostEnableHostRevision), RequireRuntime: true})
+	defer wipeCredentialJSON(result.Before.JSON)
+	defer wipeCredentialJSON(result.After.JSON)
 	if saveErr != nil {
 		return m.manualReview(key, record, "redisable_failed")
 	}
-	if !result.After.RuntimeOK || result.After.Revision == "" {
+	if !result.After.RuntimeOK || result.After.Revision == "" || result.After.ContentHashWithoutDisabled == "" {
 		return m.manualReview(key, record, "redisable_revision_unavailable")
 	}
 	level := record.BackoffLevel
@@ -409,6 +434,29 @@ func guardMatchesPostEnable(snap credentials.Snapshot, record domain.OwnershipRe
 		(record.AuthID == "" || snap.AuthID == record.AuthID) &&
 		snap.ContentHashWithoutDisabled == record.PostEnableHashWithoutDisabled && snap.Revision.String() == record.PostEnableHostRevision
 }
+func (m *Manager) recordHealthCheck(key, authIndex, identityHash string, summary domain.ProbeSummary) error {
+	safeSummary := domain.SafeProbeSummary(&summary)
+	if safeSummary == nil {
+		safeSummary = &domain.ProbeSummary{At: m.now().UTC(), Status: domain.ProbeError, SafeError: "probe_error"}
+	}
+	return m.store.Update(func(next *domain.State) error {
+		if next.Observations == nil {
+			next.Observations = map[string]domain.CredentialObservation{}
+		}
+		observation := next.Observations[key]
+		if observation.AuthIndex != authIndex || observation.IdentityHash != identityHash {
+			observation = domain.CredentialObservation{AuthIndex: authIndex, IdentityHash: identityHash}
+		}
+		probe := *safeSummary
+		probe.Windows = domain.SafeQuotaWindows(safeSummary.Windows)
+		observation.LastHealthCheck = &probe
+		quotaObservation := codexhealth.QuotaObservationFromProbe(authIndex, identityHash, probe)
+		observation.Quota = &quotaObservation
+		next.Observations[key] = observation
+		return nil
+	})
+}
+
 func (m *Manager) retire(key string) error {
 	return m.store.Update(func(next *domain.State) error { delete(next.Credentials, key); return nil })
 }
@@ -445,14 +493,30 @@ func (m *Manager) retryOrReview(key string, record domain.OwnershipRecord, summa
 	})
 }
 func (m *Manager) recordSafeError(key string, record domain.OwnershipRecord, reason string) error {
+	// The outer snapshot may be stale if another scan or usage transition
+	// updated this credential while the Host lock was being acquired. Never
+	// overwrite a newer ownership attempt with the old record.
+	current, ok := m.store.Get(key)
+	if !ok || (record.AttemptID != "" && current.AttemptID != record.AttemptID) {
+		return nil
+	}
+	record = current
 	record.LastReason = reason
 	m.scheduleBackoff(&record)
 	return m.store.Update(func(next *domain.State) error {
-		if _, ok := next.Credentials[key]; ok {
-			next.Credentials[key] = record
+		current, ok := next.Credentials[key]
+		if !ok || current.AttemptID != record.AttemptID {
+			return nil
 		}
+		next.Credentials[key] = record
 		return nil
 	})
+}
+
+func wipeCredentialJSON(value []byte) {
+	for index := range value {
+		value[index] = 0
+	}
 }
 
 func newAttemptID() string {

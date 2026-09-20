@@ -40,14 +40,26 @@ type Config struct {
 	DetectHTTP429            bool
 	ClassifyGenericRateLimit bool
 	ProxyManagementEnabled   bool
+	InitialWakeupEnabled     bool
+	ResetWakeupEnabled       bool
+	WakeupModel              string
+	WakeupReasoningEffort    string
 }
 
 // Inert returns true when automatic writes and recovery must not run.
 func (c Config) Inert() bool { return !c.Enabled }
 
-// EffectiveProjection avoids exposing the configured filesystem path or the
-// informational model value to an unauthenticated response.
+// EffectiveProjection avoids exposing the configured filesystem path while
+// returning only safe, allow-listed configuration values for the authenticated UI.
 func (c Config) EffectiveProjection() map[string]any {
+	wakeupModel := strings.TrimSpace(c.WakeupModel)
+	if wakeupModel == "" {
+		wakeupModel = "gpt-5.6-luna"
+	}
+	wakeupEffort := strings.TrimSpace(c.WakeupReasoningEffort)
+	if wakeupEffort == "" {
+		wakeupEffort = "low"
+	}
 	return map[string]any{
 		"enabled":                     c.Enabled,
 		"state_dir_configured":        strings.TrimSpace(c.StateDir) != "",
@@ -63,6 +75,10 @@ func (c Config) EffectiveProjection() map[string]any {
 		"detect_http_429":             c.DetectHTTP429,
 		"classify_generic_rate_limit": c.ClassifyGenericRateLimit,
 		"proxy_management_enabled":    c.ProxyManagementEnabled,
+		"initial_wakeup_enabled":      c.InitialWakeupEnabled,
+		"reset_wakeup_enabled":        c.ResetWakeupEnabled,
+		"wakeup_model":                wakeupModel,
+		"wakeup_reasoning_effort":     wakeupEffort,
 	}
 }
 
@@ -145,6 +161,26 @@ func Parse(raw []byte) (Config, error) {
 	if err := applyBool(mapping, "proxy_management_enabled", &cfg.ProxyManagementEnabled); err != nil {
 		return Config{}, err
 	}
+	if err := applyBool(mapping, "initial_wakeup_enabled", &cfg.InitialWakeupEnabled); err != nil {
+		return Config{}, err
+	}
+	if err := applyBool(mapping, "reset_wakeup_enabled", &cfg.ResetWakeupEnabled); err != nil {
+		return Config{}, err
+	}
+	if value, present := mapping["wakeup_model"]; present {
+		v, err := scalarString(value, "wakeup_model")
+		if err != nil {
+			return Config{}, err
+		}
+		cfg.WakeupModel = strings.TrimSpace(v)
+	}
+	if value, present := mapping["wakeup_reasoning_effort"]; present {
+		v, err := scalarString(value, "wakeup_reasoning_effort")
+		if err != nil {
+			return Config{}, err
+		}
+		cfg.WakeupReasoningEffort = strings.ToLower(strings.TrimSpace(v))
+	}
 	if err := Validate(&cfg); err != nil {
 		return Config{}, err
 	}
@@ -166,6 +202,8 @@ func defaults() Config {
 		DetectHTTP429:            true,
 		ClassifyGenericRateLimit: false,
 		ProxyManagementEnabled:   true,
+		WakeupModel:              "gpt-5.6-luna",
+		WakeupReasoningEffort:    "low",
 	}
 }
 
@@ -198,6 +236,20 @@ func Validate(c *Config) error {
 	}
 	if c.ProbeProvider != "codex" {
 		return fmt.Errorf("probe_provider %q is unavailable; only codex is supported", c.ProbeProvider)
+	}
+	if strings.TrimSpace(c.WakeupModel) == "" {
+		c.WakeupModel = "gpt-5.6-luna"
+	}
+	if c.WakeupModel != "gpt-5.6-luna" {
+		return errors.New("wakeup_model is not allowed")
+	}
+	if c.WakeupReasoningEffort == "" {
+		c.WakeupReasoningEffort = "low"
+	}
+	switch c.WakeupReasoningEffort {
+	case "low", "medium", "high":
+	default:
+		return errors.New("wakeup_reasoning_effort is not allowed")
 	}
 	if isUnsafeStatePath(c.StateDir) {
 		return fmt.Errorf("state_dir %q is unsafe", c.StateDir)

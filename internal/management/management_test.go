@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"os"
 	"strings"
@@ -12,8 +13,12 @@ import (
 	"testing"
 	"time"
 
+	"cpa-credential-guard/internal/codexhealth"
 	"cpa-credential-guard/internal/config"
 	"cpa-credential-guard/internal/credentials"
+	"cpa-credential-guard/internal/domain"
+	"cpa-credential-guard/internal/proxy"
+	"cpa-credential-guard/internal/state"
 	"github.com/router-for-me/CLIProxyAPI/v7/sdk/pluginapi"
 )
 
@@ -83,17 +88,134 @@ func (h *managementHost) Save(_ context.Context, req pluginapi.HostAuthSaveReque
 	return pluginapi.HostAuthSaveResponse{}, errors.New("missing")
 }
 
+type managementRoundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f managementRoundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) { return f(req) }
+
 func TestRegistrationUsesPluginScopedRoutes(t *testing.T) {
 	svc := New(config.Config{}, nil, nil, nil)
 	registered, err := svc.RegisterManagement(context.Background(), pluginapi.ManagementRegistrationRequest{BasePath: "/v0/management"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(registered.Routes) != 8 || registered.Routes[0].Path != "/plugins/cpa-credential-guard/status" {
+	if len(registered.Routes) != 9 || registered.Routes[0].Path != "/plugins/cpa-credential-guard/status" {
 		t.Fatalf("routes=%#v", registered.Routes)
 	}
 	resp, err := svc.HandleManagement(context.Background(), pluginapi.ManagementRequest{Method: http.MethodGet, Path: "/v0/management/plugins/cpa-credential-guard/status"})
 	if err != nil || resp.StatusCode != http.StatusOK {
+		t.Fatalf("status=%d err=%v body=%s", resp.StatusCode, err, resp.Body)
+	}
+}
+
+func TestProxyTestReturnsFixedMultiTargetSafeResults(t *testing.T) {
+	checker := &proxy.Checker{Timeout: time.Second, RoundTripper: managementRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+		if req.Header.Get("Authorization") != "" || req.Header.Get("Cookie") != "" {
+			t.Fatal("proxy check attached credential headers")
+		}
+		status := http.StatusNoContent
+		if req.URL.Host == "api.openai.com" || req.URL.Host == "api.x.ai" {
+			status = http.StatusUnauthorized
+		}
+		return &http.Response{StatusCode: status, Header: make(http.Header), Body: http.NoBody}, nil
+	})}
+	svc := New(config.Config{Enabled: true, ProxyManagementEnabled: true}, credentials.NewRepository(newManagementHost()), nil, nil)
+	svc.SetChecker(checker)
+	resp, err := svc.HandleManagement(context.Background(), pluginapi.ManagementRequest{Method: http.MethodPost, Path: "/proxy/test", Body: []byte(`{"proxies":["http://proxy.example:8080"]}`)})
+	if err != nil || resp.StatusCode != http.StatusOK {
+		t.Fatalf("status=%d err=%v body=%s", resp.StatusCode, err, resp.Body)
+	}
+	var result struct {
+		Items   []domain.ProxyTestItem  `json:"items"`
+		Summary domain.ProxyTestSummary `json:"summary"`
+	}
+	if err := json.Unmarshal(resp.Body, &result); err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Items) != 5 || result.Summary.Total != 5 || result.Summary.Passed != 5 {
+		t.Fatalf("result=%#v", result)
+	}
+	expectedTargets := []string{"base_connectivity", "openai", "anthropic", "gemini", "grok"}
+	for index, item := range result.Items {
+		if item.Target != expectedTargets[index] {
+			t.Fatalf("target order=%#v", result.Items)
+		}
+	}
+	if strings.Contains(string(resp.Body), "user:pass") || strings.Contains(string(resp.Body), "Authorization") {
+		t.Fatalf("unsafe proxy result=%s", resp.Body)
+	}
+}
+
+func TestManualQuotaQueryIsExplicitAndStoresSafeProjection(t *testing.T) {
+	h := newManagementHost()
+	store, _, err := state.New(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	var callsMu sync.Mutex
+	calls := 0
+	client := codexhealth.NewClient()
+	callCount := func() int { callsMu.Lock(); defer callsMu.Unlock(); return calls }
+	client.RoundTripper = managementRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+		callsMu.Lock()
+		calls++
+		callsMu.Unlock()
+		if req.URL.String() != codexhealth.UsageURL {
+			t.Fatalf("url=%s", req.URL)
+		}
+		if req.Header.Get("Authorization") == "" || req.Header.Get("Cookie") != "" {
+			t.Fatalf("unsafe headers")
+		}
+		return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(`{"status_code":200,"body":{"rate_limit":{"primary_window":{"used_percent":20}}}}`))}, nil
+	})
+	svc := New(config.Config{Enabled: true, ProbeEnabled: true, StateDir: t.TempDir()}, credentials.NewRepository(h), store, nil)
+	svc.SetQuotaClient(client)
+	if _, err := svc.HandleManagement(context.Background(), pluginapi.ManagementRequest{Method: http.MethodGet, Path: "/status"}); err != nil {
+		t.Fatal(err)
+	}
+	if callCount() != 0 {
+		t.Fatalf("status unexpectedly queried quota: %d", callCount())
+	}
+	resp, err := svc.HandleManagement(context.Background(), pluginapi.ManagementRequest{Method: http.MethodPost, Path: "/quota/query", Body: []byte(`{}`)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status=%d body=%s", resp.StatusCode, resp.Body)
+	}
+	var all struct {
+		Items []quotaQueryItem `json:"items"`
+	}
+	if err := json.Unmarshal(resp.Body, &all); err != nil {
+		t.Fatal(err)
+	}
+	if len(all.Items) != 3 || callCount() != 3 {
+		t.Fatalf("items=%#v calls=%d", all.Items, callCount())
+	}
+	for _, item := range all.Items {
+		if item.Status != domain.QuotaAvailable {
+			t.Fatalf("item=%#v", item)
+		}
+	}
+	if observation, ok := store.GetObservation("codex:a"); !ok || observation.Quota == nil || observation.Quota.Status != domain.QuotaAvailable {
+		t.Fatalf("observation=%#v ok=%v", observation, ok)
+	}
+	resp, err = svc.HandleManagement(context.Background(), pluginapi.ManagementRequest{Method: http.MethodPost, Path: "/quota/query", Body: []byte(`{"auth_index":"a"}`)})
+	if err != nil || resp.StatusCode != http.StatusOK || callCount() != 4 {
+		t.Fatalf("single status=%d err=%v calls=%d", resp.StatusCode, err, callCount())
+	}
+}
+
+func TestQuotaQueryDisabledDoesNotReadHost(t *testing.T) {
+	h := newManagementHost()
+	store, _, err := state.New(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	svc := New(config.Config{Enabled: true, ProbeEnabled: false}, credentials.NewRepository(h), store, nil)
+	resp, err := svc.HandleManagement(context.Background(), pluginapi.ManagementRequest{Method: http.MethodPost, Path: "/quota/query", Body: []byte(`{}`)})
+	if err != nil || resp.StatusCode != http.StatusOK || !strings.Contains(string(resp.Body), "quota_probe_disabled") {
 		t.Fatalf("status=%d err=%v body=%s", resp.StatusCode, err, resp.Body)
 	}
 }
@@ -117,12 +239,12 @@ func TestManagementServesStaticResourceThroughDynamicPath(t *testing.T) {
 	if !strings.Contains(body, "CPA 凭证守护") {
 		t.Fatalf("resource body does not contain the plugin title")
 	}
-	for _, marker := range []string{"lang=\"zh-CN\"", "color-scheme: dark", "代理管理", "代理备注", "保存代理备注", "data-config-key", "type=\"checkbox\"", "PATCH", "应用预览", "测试代理", "连接 CPA", "CPA 管理密钥", "manual-key", "clear-manual", "credentials = 'omit'", "AbortController", "check-target", "跳到主要内容", "pagehide", "invalidatePlan", "previewVersion", "statusProjection", "input.dataset.profileSelect", "proxy_profiles", "profile_id", "cli-proxy-auth", "enc::v1::", "cli-proxy-api-webui::secure-storage", "Authorization", "management_key_required", "记住密码", "prefers-reduced-motion"} {
+	for _, marker := range []string{"lang=\"zh-CN\"", "color-scheme: dark", "代理管理", "代理板块", "代理备注", "保存代理备注", "data-config-key", "type=\"checkbox\"", "PATCH", "应用预览", "测试代理", "连接 CPA", "CPA 管理密钥", "manual-key", "clear-manual", "credentials = 'omit'", "AbortController", "check-target", "跳到主要内容", "pagehide", "invalidatePlan", "previewVersion", "statusProjection", "input.dataset.profileSelect", "proxy_profiles", "profile_id", "cli-proxy-auth", "enc::v1::", "cli-proxy-api-webui::secure-storage", "Authorization", "management_key_required", "记住密码", "prefers-reduced-motion", "proxy-test-results", "query-all-quota", "queryQuota", "quotaRequestGeneration", "quota_probe_disabled", "page-size", "全选当前页", "initial_wakeup_enabled", "reset_wakeup_enabled", "wakeup_model", "wakeup_reasoning_effort", "health_check", "base_connectivity", "target_unexpected_status", "wake_auth_failed", "wake_quota_exhausted", "需要重新认证", "额度不足：等待额度窗口或手动查询"} {
 		if !strings.Contains(body, marker) {
 			t.Fatalf("resource body missing Chinese/dark UI marker %q", marker)
 		}
 	}
-	for _, forbidden := range []string{"lang=\"en\"", "color-scheme: light", "color-scheme: light dark", "light-theme", "theme-toggle", "fingerprint", "Fingerprint", "指纹"} {
+	for _, forbidden := range []string{"lang=\"en\"", "color-scheme: light", "color-scheme: light dark", "light-theme", "theme-toggle", "fingerprint", "Fingerprint", "指纹", "批量代理管理", "target_url", "custom_target"} {
 		if strings.Contains(body, forbidden) {
 			t.Fatalf("resource body contains forbidden light/English theme marker %q", forbidden)
 		}
@@ -202,6 +324,119 @@ func TestStatusRedactsCredentialAndProxySecrets(t *testing.T) {
 		t.Fatalf("status missing redacted endpoint: %s", body)
 	}
 }
+func TestStatusPrefersCurrentManualQuotaAndRejectsStaleIdentity(t *testing.T) {
+	h := newManagementHost()
+	store, _, err := state.New(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	repo := credentials.NewRepository(h)
+	snap, err := repo.Snapshot(context.Background(), "a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Update(func(next *domain.State) error {
+		next.Credentials["codex:a"] = domain.OwnershipRecord{
+			AuthIndex: "a", AuthID: "id-a", FileName: snap.Name, DisabledAt: time.Unix(10, 0).UTC(),
+			WasEnabled: true, ContentHashWithoutDisabled: snap.ContentHashWithoutDisabled,
+			Phase: domain.PhaseOwnedDisabled, AttemptID: "attempt-a", LastReason: "quota_exhausted",
+			Quota: &domain.QuotaObservation{AuthIndex: "a", IdentityHash: snap.ContentHashWithoutDisabled, Status: domain.QuotaAvailable},
+		}
+		next.Observations["codex:a"] = domain.CredentialObservation{
+			AuthIndex: "a", IdentityHash: snap.ContentHashWithoutDisabled,
+			Quota: &domain.QuotaObservation{AuthIndex: "a", IdentityHash: snap.ContentHashWithoutDisabled, Status: domain.QuotaExhausted, SafeError: "quota_exhausted"},
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	svc := New(config.Config{Enabled: true}, repo, store, nil)
+	resp, err := svc.HandleManagement(context.Background(), pluginapi.ManagementRequest{Method: http.MethodGet, Path: "/status"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var projected statusResponse
+	if err := json.Unmarshal(resp.Body, &projected); err != nil {
+		t.Fatal(err)
+	}
+	var row *domain.CredentialProjection
+	for index := range projected.Credentials {
+		if projected.Credentials[index].AuthIndex == "a" {
+			row = &projected.Credentials[index]
+			break
+		}
+	}
+	if row == nil || row.Quota == nil || row.Quota.Status != domain.QuotaExhausted {
+		t.Fatalf("manual observation did not win: %#v", row)
+	}
+
+	h.mu.Lock()
+	h.raw["a"] = json.RawMessage(`{"type":"codex","access_token":"replaced-secret","disabled":false,"changed":true}`)
+	h.mu.Unlock()
+	resp, err = svc.HandleManagement(context.Background(), pluginapi.ManagementRequest{Method: http.MethodGet, Path: "/status"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(resp.Body, &projected); err != nil {
+		t.Fatal(err)
+	}
+	row = nil
+	for index := range projected.Credentials {
+		if projected.Credentials[index].AuthIndex == "a" {
+			row = &projected.Credentials[index]
+			break
+		}
+	}
+	if row == nil || row.Quota == nil || row.Quota.Status != domain.QuotaUnknown {
+		t.Fatalf("stale identity was not reduced to unknown: %#v", row)
+	}
+}
+
+func TestStatusProjectionOmitsQuotaAndWakePersistenceHashes(t *testing.T) {
+	h := newManagementHost()
+	store, _, err := state.New(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	if err := store.Update(func(next *domain.State) error {
+		next.Observations["codex:a"] = domain.CredentialObservation{AuthIndex: "a", IdentityHash: "private-content-hash", Quota: &domain.QuotaObservation{AuthIndex: "a", IdentityHash: "private-content-hash", Status: domain.QuotaAvailable}, InitialWakeup: &domain.WakeupRecord{Mode: domain.WakeupInitial, Status: "success", IdentityHash: "private-content-hash", WindowKey: "private-window-key", SafeError: "wake_success"}}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	repo := credentials.NewRepository(h)
+	snap, err := repo.Snapshot(context.Background(), "a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Update(func(next *domain.State) error {
+		observation := next.Observations["codex:a"]
+		observation.IdentityHash = snap.ContentHashWithoutDisabled
+		observation.Quota.IdentityHash = snap.ContentHashWithoutDisabled
+		observation.InitialWakeup.IdentityHash = snap.ContentHashWithoutDisabled
+		next.Observations["codex:a"] = observation
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	svc := New(config.Config{Enabled: true}, repo, store, nil)
+	resp, err := svc.HandleManagement(context.Background(), pluginapi.ManagementRequest{Method: http.MethodGet, Path: "/status"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := string(resp.Body)
+	for _, secret := range []string{"private-content-hash", "private-window-key", "identity_hash", "window_key"} {
+		if strings.Contains(body, secret) {
+			t.Fatalf("status leaked persistence-only field %q: %s", secret, body)
+		}
+	}
+	if !strings.Contains(body, "wake_success") || !strings.Contains(body, "available") {
+		t.Fatalf("status omitted safe projection: %s", body)
+	}
+}
+
 func TestPreviewApplyHeterogeneousBatchContinuesAfterFailure(t *testing.T) {
 	h := newManagementHost()
 	svc := New(config.Config{Enabled: true, ProxyManagementEnabled: true}, credentials.NewRepository(h), nil, nil)

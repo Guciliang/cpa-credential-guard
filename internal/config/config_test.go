@@ -15,7 +15,7 @@ func TestParseDefaultsAreConservative(t *testing.T) {
 	if cfg.Enabled {
 		t.Fatal("empty config must be disabled")
 	}
-	if cfg.ProbeProvider != "codex" || cfg.DetectHTTP429 != true || cfg.ClassifyGenericRateLimit {
+	if cfg.ProbeProvider != "codex" || cfg.DetectHTTP429 != true || cfg.ClassifyGenericRateLimit || cfg.InitialWakeupEnabled || cfg.ResetWakeupEnabled || cfg.WakeupModel != "gpt-5.6-luna" || cfg.WakeupReasoningEffort != "low" {
 		t.Fatalf("unexpected defaults: %#v", cfg)
 	}
 	if cfg.ScanInterval < MinimumScanInterval {
@@ -39,6 +39,22 @@ func TestParseNestedAndRejectsUnsafeSettings(t *testing.T) {
 	}
 	if _, err := Parse([]byte("probe_provider: claude\n")); err == nil {
 		t.Fatal("non-Codex probe must fail")
+	}
+}
+
+func TestWakeupSwitchesAreIndependentAndValidated(t *testing.T) {
+	cfg, err := Parse([]byte("initial_wakeup_enabled: true\nreset_wakeup_enabled: false\nwakeup_model: gpt-5.6-luna\nwakeup_reasoning_effort: low\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.InitialWakeupEnabled || cfg.ResetWakeupEnabled {
+		t.Fatalf("switches=%#v", cfg)
+	}
+	if _, err := Parse([]byte("wakeup_model: arbitrary-model\n")); err == nil {
+		t.Fatal("arbitrary wakeup model accepted")
+	}
+	if _, err := Parse([]byte("wakeup_reasoning_effort: extreme\n")); err == nil {
+		t.Fatal("arbitrary reasoning effort accepted")
 	}
 }
 

@@ -228,7 +228,7 @@ func restrictStateFile(file *os.File) error {
 }
 
 func emptyState(now time.Time) domain.State {
-	return domain.State{SchemaVersion: domain.SchemaVersion, UpdatedAt: now.UTC(), Credentials: map[string]domain.OwnershipRecord{}}
+	return domain.State{SchemaVersion: domain.SchemaVersion, UpdatedAt: now.UTC(), Credentials: map[string]domain.OwnershipRecord{}, Observations: map[string]domain.CredentialObservation{}}
 }
 
 func (s *Store) load() (LoadReport, error) {
@@ -263,30 +263,47 @@ func (s *Store) load() (LoadReport, error) {
 		s.lastError = err
 		return LoadReport{Error: "state file cannot be opened safely"}, fmt.Errorf("open state: %w", err)
 	}
-	defer file.Close()
+	closeFile := func() error {
+		if file == nil {
+			return nil
+		}
+		err := file.Close()
+		file = nil
+		return err
+	}
 	if err := restrictStateFile(file); err != nil {
+		_ = closeFile()
 		s.lastError = err
 		return LoadReport{Error: "state file permissions cannot be restricted"}, fmt.Errorf("restrict state file: %w", err)
 	}
 	info, err = file.Stat()
 	if err != nil {
+		_ = closeFile()
 		s.lastError = err
 		return LoadReport{Error: "state file cannot be inspected"}, fmt.Errorf("stat opened state: %w", err)
 	}
 	if info.Size() > maxStateBytes {
+		_ = closeFile()
 		return s.recoverCorruptState(false)
 	}
 	raw, err := io.ReadAll(io.LimitReader(file, maxStateBytes+1))
 	if err != nil {
+		_ = closeFile()
 		s.lastError = err
 		return LoadReport{Error: "state file cannot be read"}, fmt.Errorf("read state: %w", err)
 	}
 	if len(raw) > maxStateBytes {
+		_ = closeFile()
 		return s.recoverCorruptState(false)
 	}
 	var candidate domain.State
 	if err := decodeAndValidate(raw, &candidate); err != nil {
+		_ = closeFile()
 		return s.recoverCorruptState(errors.Is(err, errSchema))
+	}
+	if err := closeFile(); err != nil {
+		s.lastError = err
+		return LoadReport{Error: "state file cannot be closed safely"}, fmt.Errorf("close state: %w", err)
 	}
 	if candidate.Credentials == nil {
 		candidate.Credentials = map[string]domain.OwnershipRecord{}
@@ -313,15 +330,135 @@ func (s *Store) recoverCorruptState(incompatible bool) (LoadReport, error) {
 
 var errSchema = errors.New("unsupported state schema")
 
+type ownershipRecordWire struct {
+	AuthIndex                     string          `json:"auth_index"`
+	AuthID                        string          `json:"auth_id,omitempty"`
+	FileName                      string          `json:"file_name"`
+	DisabledAt                    time.Time       `json:"disabled_at"`
+	WasEnabled                    bool            `json:"was_enabled"`
+	ContentHashWithoutDisabled    string          `json:"content_hash_without_disabled"`
+	PluginSaveHostRevision        string          `json:"plugin_save_host_revision,omitempty"`
+	Phase                         string          `json:"phase"`
+	AttemptID                     string          `json:"attempt_id"`
+	PostEnableHashWithoutDisabled string          `json:"post_enable_hash_without_disabled,omitempty"`
+	PostEnableHostRevision        string          `json:"post_enable_host_revision,omitempty"`
+	ResetAt                       time.Time       `json:"reset_at,omitempty"`
+	NextCheckAt                   time.Time       `json:"next_check_at,omitempty"`
+	BackoffLevel                  int             `json:"backoff_level,omitempty"`
+	LastReason                    string          `json:"last_reason,omitempty"`
+	LastProbe                     json.RawMessage `json:"last_probe,omitempty"`
+	Quota                         json.RawMessage `json:"quota,omitempty"`
+	InitialWakeup                 json.RawMessage `json:"initial_wakeup,omitempty"`
+	ResetWakeup                   json.RawMessage `json:"reset_wakeup,omitempty"`
+}
+
+type credentialObservationWire struct {
+	AuthIndex       string          `json:"auth_index"`
+	IdentityHash    string          `json:"identity_hash"`
+	LastHealthCheck json.RawMessage `json:"last_health_check,omitempty"`
+	Quota           json.RawMessage `json:"quota,omitempty"`
+	InitialWakeup   json.RawMessage `json:"initial_wakeup,omitempty"`
+	ResetWakeup     json.RawMessage `json:"reset_wakeup,omitempty"`
+	Usage           json.RawMessage `json:"usage,omitempty"`
+}
+
+// decodeOptionalRecord deliberately treats an invalid optional sub-record as
+// absent. The ownership identity/phase remains strict, while one damaged
+// quota, probe, usage, or wake entry cannot quarantine unrelated credentials.
+func decodeOptionalRecord[T any](raw json.RawMessage) *T {
+	trimmed := bytes.TrimSpace(raw)
+	if len(trimmed) == 0 || bytes.Equal(trimmed, []byte("null")) {
+		return nil
+	}
+	decoder := json.NewDecoder(bytes.NewReader(trimmed))
+	decoder.DisallowUnknownFields()
+	var value T
+	if err := decoder.Decode(&value); err != nil {
+		return nil
+	}
+	var extra any
+	if err := decoder.Decode(&extra); err != io.EOF {
+		return nil
+	}
+	return &value
+}
+
+func decodeOwnershipRecord(raw json.RawMessage) (domain.OwnershipRecord, error) {
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.DisallowUnknownFields()
+	var wire ownershipRecordWire
+	if err := decoder.Decode(&wire); err != nil {
+		return domain.OwnershipRecord{}, err
+	}
+	var extra any
+	if err := decoder.Decode(&extra); err != io.EOF {
+		return domain.OwnershipRecord{}, errors.New("ownership record contains trailing data")
+	}
+	return domain.OwnershipRecord{
+		AuthIndex: wire.AuthIndex, AuthID: wire.AuthID, FileName: wire.FileName,
+		DisabledAt: wire.DisabledAt, WasEnabled: wire.WasEnabled,
+		ContentHashWithoutDisabled: wire.ContentHashWithoutDisabled,
+		PluginSaveHostRevision:     wire.PluginSaveHostRevision, Phase: wire.Phase,
+		AttemptID: wire.AttemptID, PostEnableHashWithoutDisabled: wire.PostEnableHashWithoutDisabled,
+		PostEnableHostRevision: wire.PostEnableHostRevision, ResetAt: wire.ResetAt,
+		NextCheckAt: wire.NextCheckAt, BackoffLevel: wire.BackoffLevel, LastReason: wire.LastReason,
+		LastProbe:     decodeOptionalRecord[domain.ProbeSummary](wire.LastProbe),
+		Quota:         decodeOptionalRecord[domain.QuotaObservation](wire.Quota),
+		InitialWakeup: decodeOptionalRecord[domain.WakeupRecord](wire.InitialWakeup),
+		ResetWakeup:   decodeOptionalRecord[domain.WakeupRecord](wire.ResetWakeup),
+	}, nil
+}
+
 func decodeAndValidate(raw []byte, dst *domain.State) error {
+	// Keep optional observation and ownership sub-records raw while decoding the
+	// required ownership identity strictly. A single malformed optional record
+	// must be discarded without quarantining otherwise usable state.
+	var envelope struct {
+		SchemaVersion int                        `json:"schema_version"`
+		UpdatedAt     time.Time                  `json:"updated_at"`
+		Credentials   map[string]json.RawMessage `json:"credentials"`
+		Observations  map[string]json.RawMessage `json:"observations"`
+	}
 	dec := json.NewDecoder(bytes.NewReader(raw))
 	dec.DisallowUnknownFields()
-	if err := dec.Decode(dst); err != nil {
+	if err := dec.Decode(&envelope); err != nil {
 		return err
 	}
 	var extra any
 	if err := dec.Decode(&extra); err != io.EOF {
 		return errors.New("state contains trailing data")
+	}
+	dst.SchemaVersion = envelope.SchemaVersion
+	dst.UpdatedAt = envelope.UpdatedAt
+	if envelope.Credentials == nil {
+		return errors.New("state credentials is required")
+	}
+	dst.Credentials = make(map[string]domain.OwnershipRecord, len(envelope.Credentials))
+	for key, rawRecord := range envelope.Credentials {
+		record, err := decodeOwnershipRecord(rawRecord)
+		if err != nil {
+			return err
+		}
+		dst.Credentials[key] = record
+	}
+	dst.Observations = make(map[string]domain.CredentialObservation, len(envelope.Observations))
+	for key, rawObservation := range envelope.Observations {
+		var observation domain.CredentialObservation
+		observationDecoder := json.NewDecoder(bytes.NewReader(rawObservation))
+		observationDecoder.DisallowUnknownFields()
+		if err := observationDecoder.Decode(&observation); err != nil {
+			continue
+		}
+		var observationExtra any
+		if err := observationDecoder.Decode(&observationExtra); err != io.EOF {
+			continue
+		}
+		if key != "codex:"+observation.AuthIndex {
+			continue
+		}
+		if safeObservation, ok := domain.SafeCredentialObservation(observation); ok {
+			dst.Observations[key] = safeObservation
+		}
 	}
 	if dst.SchemaVersion != domain.SchemaVersion {
 		return fmt.Errorf("%w: %d", errSchema, dst.SchemaVersion)
@@ -332,10 +469,30 @@ func decodeAndValidate(raw []byte, dst *domain.State) error {
 	if dst.Credentials == nil {
 		return errors.New("state credentials is required")
 	}
+	if dst.Observations == nil {
+		dst.Observations = map[string]domain.CredentialObservation{}
+	}
+	if len(dst.Observations) > maxStateRecords {
+		return errors.New("state contains too many credential observations")
+	}
+	cleanObservations := make(map[string]domain.CredentialObservation, len(dst.Observations))
+	for key, observation := range dst.Observations {
+		if key != "codex:"+observation.AuthIndex {
+			continue
+		}
+		if safeObservation, ok := domain.SafeCredentialObservation(observation); ok {
+			cleanObservations[key] = safeObservation
+		}
+	}
+	dst.Observations = cleanObservations
 	if len(dst.Credentials) > maxStateRecords {
 		return errors.New("state contains too many ownership records")
 	}
 	for key, record := range dst.Credentials {
+		record.LastProbe = domain.SafeProbeSummary(record.LastProbe)
+		record.Quota = domain.SafeQuotaObservation(record.Quota)
+		record.InitialWakeup = domain.SafeWakeupRecord(record.InitialWakeup, domain.WakeupInitial)
+		record.ResetWakeup = domain.SafeWakeupRecord(record.ResetWakeup, domain.WakeupReset)
 		if key != "codex:"+record.AuthIndex || strings.TrimSpace(key) == "" || strings.TrimSpace(record.AuthIndex) == "" || strings.TrimSpace(record.FileName) == "" || strings.TrimSpace(record.AttemptID) == "" {
 			return errors.New("state contains incomplete ownership record")
 		}
@@ -362,27 +519,24 @@ func decodeAndValidate(raw []byte, dst *domain.State) error {
 		if record.LastReason != "" && domain.SafeCode(record.LastReason) == "unknown" {
 			return errors.New("ownership reason is not safe")
 		}
-		if err := validateProbeSummary(record.LastProbe); err != nil {
-			return err
+		if record.Quota != nil {
+			if record.Quota.Status != domain.QuotaUnknown && record.Quota.Status != domain.QuotaAvailable && record.Quota.Status != domain.QuotaExhausted {
+				return errors.New("quota status is invalid")
+			}
+			if len(record.Quota.IdentityHash) > 128 || record.Quota.SafeError != "" && domain.SafeCode(record.Quota.SafeError) == "unknown" {
+				return errors.New("quota observation is not safe")
+			}
+			if record.Quota.AuthIndex != record.AuthIndex || record.Quota.IdentityHash != record.ContentHashWithoutDisabled {
+				record.Quota = nil
+			}
 		}
-	}
-	return nil
-}
-
-func validateProbeSummary(probe *domain.ProbeSummary) error {
-	if probe == nil {
-		return nil
-	}
-	if probe.Status != domain.ProbeSuccess && probe.Status != domain.ProbeExhausted && probe.Status != domain.ProbeAmbiguous && probe.Status != domain.ProbeError {
-		return errors.New("probe status is invalid")
-	}
-	if probe.SafeError != "" && domain.SafeCode(probe.SafeError) == "unknown" {
-		return errors.New("probe error is not safe")
-	}
-	for _, window := range probe.Windows {
-		if window.Family != domain.SafeFamily(window.Family) {
-			return errors.New("probe family is not safe")
+		if record.InitialWakeup != nil && record.InitialWakeup.IdentityHash != record.ContentHashWithoutDisabled {
+			record.InitialWakeup = nil
 		}
+		if record.ResetWakeup != nil && record.ResetWakeup.IdentityHash != record.ContentHashWithoutDisabled {
+			record.ResetWakeup = nil
+		}
+		dst.Credentials[key] = record
 	}
 	return nil
 }
@@ -414,10 +568,12 @@ func (s *Store) quarantine() string {
 		}
 		// Restrict a regular quarantined file through an open descriptor. A
 		// quarantined symlink is intentionally left untouched so its target is
-		// never chmod-ed.
-		if quarantined, err := s.root.OpenFile(name, os.O_RDWR, 0); err == nil {
-			_ = quarantined.Chmod(0o600)
-			_ = quarantined.Close()
+		// never chmod-ed; the pinned Root open also rejects a final symlink.
+		if quarantinedInfo, statErr := s.root.Lstat(name); statErr == nil && quarantinedInfo.Mode().IsRegular() && quarantinedInfo.Mode()&os.ModeSymlink == 0 {
+			if quarantined, openErr := s.root.OpenFile(name, os.O_RDWR, 0); openErr == nil {
+				_ = quarantined.Chmod(0o600)
+				_ = quarantined.Close()
+			}
 		}
 		return filepath.Join(s.dir, name)
 	}
@@ -436,7 +592,18 @@ func (s *Store) Get(key string) (domain.OwnershipRecord, bool) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	record, ok := s.state.Credentials[key]
-	return record, ok
+	if !ok {
+		return domain.OwnershipRecord{}, false
+	}
+	return cloneOwnershipRecord(record), true
+}
+
+// GetObservation returns one safe optional observation snapshot.
+func (s *Store) GetObservation(key string) (domain.CredentialObservation, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	observation, ok := s.state.Observations[key]
+	return cloneObservation(observation), ok
 }
 
 // Replace replaces the full validated state and persists it atomically.
@@ -500,10 +667,38 @@ func validateStateForSave(next *domain.State) error {
 	if next.Credentials == nil {
 		next.Credentials = map[string]domain.OwnershipRecord{}
 	}
+	if next.Observations == nil {
+		next.Observations = map[string]domain.CredentialObservation{}
+	}
+	if len(next.Observations) > maxStateRecords {
+		return errors.New("state contains too many credential observations")
+	}
+	cleanObservations := make(map[string]domain.CredentialObservation, len(next.Observations))
+	for key, observation := range next.Observations {
+		if key != "codex:"+observation.AuthIndex {
+			continue
+		}
+		if safeObservation, ok := domain.SafeCredentialObservation(observation); ok {
+			cleanObservations[key] = safeObservation
+		}
+	}
+	next.Observations = cleanObservations
 	if len(next.Credentials) > maxStateRecords {
 		return errors.New("state contains too many ownership records")
 	}
 	for key, record := range next.Credentials {
+		record.Quota = domain.SafeQuotaObservation(record.Quota)
+		record.InitialWakeup = domain.SafeWakeupRecord(record.InitialWakeup, domain.WakeupInitial)
+		record.ResetWakeup = domain.SafeWakeupRecord(record.ResetWakeup, domain.WakeupReset)
+		if record.Quota != nil && (record.Quota.AuthIndex != record.AuthIndex || record.Quota.IdentityHash != record.ContentHashWithoutDisabled) {
+			record.Quota = nil
+		}
+		if record.InitialWakeup != nil && record.InitialWakeup.IdentityHash != record.ContentHashWithoutDisabled {
+			record.InitialWakeup = nil
+		}
+		if record.ResetWakeup != nil && record.ResetWakeup.IdentityHash != record.ContentHashWithoutDisabled {
+			record.ResetWakeup = nil
+		}
 		if key != "codex:"+record.AuthIndex || strings.TrimSpace(key) == "" || strings.TrimSpace(record.AuthIndex) == "" || strings.TrimSpace(record.FileName) == "" || strings.TrimSpace(record.AttemptID) == "" {
 			return errors.New("ownership record is incomplete")
 		}
@@ -526,13 +721,8 @@ func validateStateForSave(next *domain.State) error {
 		if record.LastReason != "" && domain.SafeCode(record.LastReason) == "unknown" {
 			return errors.New("ownership reason is not safe")
 		}
-		if record.LastProbe != nil {
-			record.LastProbe = domain.SafeProbeSummary(record.LastProbe)
-			next.Credentials[key] = record
-		}
-		if err := validateProbeSummary(record.LastProbe); err != nil {
-			return err
-		}
+		record.LastProbe = domain.SafeProbeSummary(record.LastProbe)
+		next.Credentials[key] = record
 	}
 	return nil
 }
@@ -605,29 +795,81 @@ func (s *Store) createTemp() (*os.File, string, error) {
 	return nil, "", errors.New("could not allocate a unique state temporary file")
 }
 
+func cloneWindows(in []domain.QuotaWindow) []domain.QuotaWindow {
+	out := make([]domain.QuotaWindow, len(in))
+	for index, window := range in {
+		out[index] = window
+		if window.UsedPercent != nil {
+			value := *window.UsedPercent
+			out[index].UsedPercent = &value
+		}
+		if window.Allowed != nil {
+			value := *window.Allowed
+			out[index].Allowed = &value
+		}
+	}
+	return out
+}
+
+func cloneObservation(in domain.CredentialObservation) domain.CredentialObservation {
+	out := in
+	if in.LastHealthCheck != nil {
+		probe := *in.LastHealthCheck
+		probe.Windows = cloneWindows(in.LastHealthCheck.Windows)
+		out.LastHealthCheck = &probe
+	}
+	if in.Quota != nil {
+		quota := *in.Quota
+		quota.Windows = cloneWindows(in.Quota.Windows)
+		out.Quota = &quota
+	}
+	if in.InitialWakeup != nil {
+		wake := *in.InitialWakeup
+		out.InitialWakeup = &wake
+	}
+	if in.ResetWakeup != nil {
+		wake := *in.ResetWakeup
+		out.ResetWakeup = &wake
+	}
+	if in.Usage != nil {
+		usage := *in.Usage
+		out.Usage = &usage
+	}
+	return out
+}
+
+func cloneOwnershipRecord(in domain.OwnershipRecord) domain.OwnershipRecord {
+	out := in
+	if in.LastProbe != nil {
+		probe := *in.LastProbe
+		probe.Windows = cloneWindows(in.LastProbe.Windows)
+		out.LastProbe = &probe
+	}
+	if in.Quota != nil {
+		quota := *in.Quota
+		quota.Windows = cloneWindows(in.Quota.Windows)
+		out.Quota = &quota
+	}
+	if in.InitialWakeup != nil {
+		wake := *in.InitialWakeup
+		out.InitialWakeup = &wake
+	}
+	if in.ResetWakeup != nil {
+		wake := *in.ResetWakeup
+		out.ResetWakeup = &wake
+	}
+	return out
+}
+
 func cloneState(in domain.State) domain.State {
 	out := in
 	out.Credentials = make(map[string]domain.OwnershipRecord, len(in.Credentials))
+	out.Observations = make(map[string]domain.CredentialObservation, len(in.Observations))
+	for key, value := range in.Observations {
+		out.Observations[key] = cloneObservation(value)
+	}
 	for key, value := range in.Credentials {
-		out.Credentials[key] = value
-		if value.LastProbe != nil {
-			probe := *value.LastProbe
-			probe.Windows = make([]domain.QuotaWindow, len(value.LastProbe.Windows))
-			for index, window := range value.LastProbe.Windows {
-				probe.Windows[index] = window
-				if window.UsedPercent != nil {
-					used := *window.UsedPercent
-					probe.Windows[index].UsedPercent = &used
-				}
-				if window.Allowed != nil {
-					allowed := *window.Allowed
-					probe.Windows[index].Allowed = &allowed
-				}
-			}
-			copyRecord := out.Credentials[key]
-			copyRecord.LastProbe = &probe
-			out.Credentials[key] = copyRecord
-		}
+		out.Credentials[key] = cloneOwnershipRecord(value)
 	}
 	return out
 }

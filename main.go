@@ -274,7 +274,11 @@ func configFields() []pluginapi.ConfigField {
 		{Name: "quota_detection_enabled", Type: pluginapi.ConfigFieldTypeBoolean, Description: "启用保守的已完成请求额度分类。"},
 		{Name: "detect_http_429", Type: pluginapi.ConfigFieldTypeBoolean, Description: "默认仅在存在明确额度证据时识别 HTTP 429。"},
 		{Name: "classify_generic_rate_limit", Type: pluginapi.ConfigFieldTypeBoolean, Description: "选择启用通用限流分类，但误判风险更高。"},
-		{Name: "proxy_management_enabled", Type: pluginapi.ConfigFieldTypeBoolean, Description: "启用代理预览、修改和无令牌测试。"},
+		{Name: "proxy_management_enabled", Type: pluginapi.ConfigFieldTypeBoolean, Description: "启用代理预览、修改和固定目标的无令牌测试。"},
+		{Name: "initial_wakeup_enabled", Type: pluginapi.ConfigFieldTypeBoolean, Description: "启用首次唤醒未使用凭证；下一轮扫描会发送一次真实 Codex 请求并可能消耗额度。"},
+		{Name: "reset_wakeup_enabled", Type: pluginapi.ConfigFieldTypeBoolean, Description: "启用额度重置后的主动唤醒；仅在已知窗口到期后发送一次真实 Codex 请求，风险与首次唤醒独立。"},
+		{Name: "wakeup_model", Type: pluginapi.ConfigFieldTypeEnum, EnumValues: []string{"gpt-5.6-luna"}, Description: "主动唤醒使用的固定模型；请求会产生真实 Codex 用量。"},
+		{Name: "wakeup_reasoning_effort", Type: pluginapi.ConfigFieldTypeEnum, EnumValues: []string{"low", "medium", "high"}, Description: "主动唤醒的思考等级；只接受服务端允许值并可能影响真实用量。"},
 	}
 }
 

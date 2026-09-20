@@ -1,6 +1,7 @@
 package state
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -105,6 +106,117 @@ func TestSymlinkStateFileIsQuarantinedWithoutFollowingTarget(t *testing.T) {
 	}
 }
 
+func TestMalformedOptionalObservationDoesNotQuarantineUsableState(t *testing.T) {
+	dir := t.TempDir()
+	goodRaw, err := json.Marshal(domain.CredentialObservation{AuthIndex: "good", IdentityHash: "sha256:good", Quota: &domain.QuotaObservation{AuthIndex: "good", IdentityHash: "sha256:good", Status: domain.QuotaAvailable}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	badRaw := json.RawMessage(`{"auth_index":"bad","identity_hash":"sha256:bad","unexpected":"drop-me"}`)
+	payload := map[string]any{
+		"schema_version": domain.SchemaVersion,
+		"updated_at":     time.Unix(100, 0).UTC(),
+		"credentials":    map[string]domain.OwnershipRecord{"codex:a-1": testRecord()},
+		"observations":   map[string]json.RawMessage{"codex:good": goodRaw, "codex:bad": badRaw},
+	}
+	raw, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "state.json"), raw, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	store, report, err := NewWithClock(dir, time.Now)
+	if err != nil || report.RecoveredCorrupt {
+		t.Fatalf("err=%v report=%#v", err, report)
+	}
+	if _, ok := store.Get("codex:a-1"); !ok {
+		t.Fatal("usable ownership record was lost")
+	}
+	if _, ok := store.GetObservation("codex:good"); !ok {
+		t.Fatal("valid observation was lost")
+	}
+	if _, ok := store.GetObservation("codex:bad"); ok {
+		t.Fatal("malformed observation was retained")
+	}
+}
+
+func TestMalformedOptionalOwnershipMetadataDoesNotQuarantineUsableState(t *testing.T) {
+	dir := t.TempDir()
+	recordRaw, err := json.Marshal(testRecord())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var record map[string]any
+	if err := json.Unmarshal(recordRaw, &record); err != nil {
+		t.Fatal(err)
+	}
+	record["quota"] = "not-a-quota-object"
+	record["initial_wakeup"] = map[string]any{"status": "unexpected", "identity_hash": "sha256:abc"}
+	payload := map[string]any{
+		"schema_version": domain.SchemaVersion,
+		"updated_at":     time.Unix(100, 0).UTC(),
+		"credentials":    map[string]any{"codex:a-1": record},
+	}
+	raw, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "state.json"), raw, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	store, report, err := NewWithClock(dir, time.Now)
+	if err != nil || report.RecoveredCorrupt {
+		t.Fatalf("err=%v report=%#v", err, report)
+	}
+	got, ok := store.Get("codex:a-1")
+	if !ok {
+		t.Fatal("usable ownership record was lost")
+	}
+	if got.Quota != nil {
+		t.Fatalf("malformed quota metadata was retained: %#v", got)
+	}
+	if got.InitialWakeup == nil || got.InitialWakeup.Status != "unknown" {
+		t.Fatalf("malformed wake metadata was not reduced to safe unknown: %#v", got)
+	}
+}
+
+func TestMalformedOptionalProbeMetadataDoesNotQuarantineOwnership(t *testing.T) {
+	dir := t.TempDir()
+	recordRaw, err := json.Marshal(testRecord())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var record map[string]any
+	if err := json.Unmarshal(recordRaw, &record); err != nil {
+		t.Fatal(err)
+	}
+	record["last_probe"] = map[string]any{
+		"status":     "unexpected",
+		"safe_error": "untrusted-upstream-detail",
+	}
+	payload := map[string]any{
+		"schema_version": domain.SchemaVersion,
+		"updated_at":     time.Unix(100, 0).UTC(),
+		"credentials":    map[string]any{"codex:a-1": record},
+	}
+	raw, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "state.json"), raw, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	store, report, err := NewWithClock(dir, time.Now)
+	if err != nil || report.RecoveredCorrupt {
+		t.Fatalf("err=%v report=%#v", err, report)
+	}
+	got, ok := store.Get("codex:a-1")
+	if !ok || got.LastProbe == nil || got.LastProbe.Status != domain.ProbeAmbiguous || got.LastProbe.SafeError != "probe_error" {
+		t.Fatalf("safe probe=%#v ok=%v", got.LastProbe, ok)
+	}
+}
+
 func TestStateNeverPersistsSecretFixtures(t *testing.T) {
 	dir := t.TempDir()
 	store, _, err := NewWithClock(dir, time.Now)
@@ -121,6 +233,61 @@ func TestStateNeverPersistsSecretFixtures(t *testing.T) {
 	}
 	if strings.Contains(string(raw), secret) {
 		t.Fatal("secret fixture persisted")
+	}
+}
+
+func TestStateBoundsOptionalWindowAndWakeMetadata(t *testing.T) {
+	dir := t.TempDir()
+	store, _, err := NewWithClock(dir, time.Now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	windows := make([]domain.QuotaWindow, 64)
+	for index := range windows {
+		windows[index] = domain.QuotaWindow{Family: "primary"}
+	}
+	observation := domain.CredentialObservation{
+		AuthIndex:     "a-1",
+		IdentityHash:  "sha256:abc",
+		Quota:         &domain.QuotaObservation{AuthIndex: "a-1", IdentityHash: "sha256:abc", Status: domain.QuotaAvailable, Windows: windows},
+		InitialWakeup: &domain.WakeupRecord{Mode: domain.WakeupInitial, Status: "pending", IdentityHash: "sha256:abc", AttemptCount: 999},
+	}
+	if err := store.Update(func(next *domain.State) error {
+		next.Observations["codex:a-1"] = observation
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	got, ok := store.GetObservation("codex:a-1")
+	if !ok || got.Quota == nil || len(got.Quota.Windows) != 32 || got.InitialWakeup == nil || got.InitialWakeup.AttemptCount != 3 {
+		t.Fatalf("bounded observation=%#v ok=%v", got, ok)
+	}
+}
+
+func TestStateDoesNotTrustIncompleteWakeSuccess(t *testing.T) {
+	dir := t.TempDir()
+	store, _, err := NewWithClock(dir, time.Now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	observation := domain.CredentialObservation{
+		AuthIndex:    "a-1",
+		IdentityHash: "sha256:abc",
+		InitialWakeup: &domain.WakeupRecord{
+			Mode:         domain.WakeupInitial,
+			Status:       "success",
+			IdentityHash: "sha256:abc",
+		},
+	}
+	if err := store.Update(func(next *domain.State) error {
+		next.Observations["codex:a-1"] = observation
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	got, ok := store.GetObservation("codex:a-1")
+	if !ok || got.InitialWakeup == nil || got.InitialWakeup.Status != "unknown" || got.InitialWakeup.SafeError != "wake_manual_review" {
+		t.Fatalf("incomplete wake success was trusted: %#v ok=%v", got, ok)
 	}
 }
 

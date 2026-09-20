@@ -4,6 +4,7 @@
 package codexhealth
 
 import (
+	"bytes"
 	"context"
 	"crypto/tls"
 	"encoding/json"
@@ -20,11 +21,23 @@ import (
 )
 
 const UsageURL = "https://chatgpt.com/backend-api/wham/usage"
+const WakeURL = "https://chatgpt.com/backend-api/codex/responses"
+const WakeModel = "gpt-5.6-luna"
+const WakePrompt = "Hello"
 const MaxResponseBody = 256 << 10
+const MaxWakeResponseBody = 512 << 10
+
+const maxCredentialHeaderValue = 8 << 10
 
 var errInvalidProxy = errors.New("proxy URL is malformed")
 
 type Result struct{ Summary domain.ProbeSummary }
+
+type WakeResult struct {
+	StatusCode int
+	ErrorCode  string
+	Completed  bool
+}
 
 type Client struct {
 	Timeout      time.Duration
@@ -84,6 +97,9 @@ func (c *Client) Probe(ctx context.Context, raw []byte) (domain.ProbeSummary, er
 	at := now.UTC()
 	summary := domain.ProbeSummary{At: at, LatencyMS: time.Since(start).Milliseconds()}
 	if err != nil {
+		if resp != nil && resp.Body != nil {
+			_ = resp.Body.Close()
+		}
 		summary.Status = domain.ProbeError
 		summary.SafeError = safeError(err)
 		return summary, nil
@@ -98,6 +114,7 @@ func (c *Client) Probe(ctx context.Context, raw []byte) (domain.ProbeSummary, er
 	}
 	defer resp.Body.Close()
 	body, readErr := io.ReadAll(io.LimitReader(resp.Body, MaxResponseBody+1))
+	defer wipeBytes(body)
 	if readErr != nil {
 		summary.Status = domain.ProbeAmbiguous
 		summary.SafeError = "response_read_failed"
@@ -143,7 +160,7 @@ func (c *Client) Probe(ctx context.Context, raw []byte) (domain.ProbeSummary, er
 		summary.SafeError = "unexpected_status"
 		return summary, nil
 	}
-	if !recognized {
+	if !recognized || len(windows) == 0 {
 		summary.Status = domain.ProbeAmbiguous
 		summary.SafeError = "invalid_inventory"
 		return summary, nil
@@ -224,7 +241,7 @@ func extract(raw []byte) (accessToken, accountID, proxyURL string, err error) {
 
 func validHeaderValue(value string) bool {
 	value = strings.TrimSpace(value)
-	if value == "" {
+	if value == "" || len(value) > maxCredentialHeaderValue {
 		return false
 	}
 	for index := 0; index < len(value); index++ {
@@ -259,6 +276,237 @@ func safeError(err error) string {
 		return "timeout"
 	}
 	return "connection_failed"
+}
+
+// Wake performs one fixed, real Codex request. It accepts credential JSON only
+// for this in-memory operation and returns only an allow-listed outcome.
+func (c *Client) Wake(ctx context.Context, raw []byte, model, effort string) (WakeResult, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if model != WakeModel || effort != "low" && effort != "medium" && effort != "high" {
+		return WakeResult{ErrorCode: "wake_protocol_failed"}, nil
+	}
+	accessToken, accountID, proxyURL, err := extract(raw)
+	if err != nil {
+		if errors.Is(err, errInvalidProxy) {
+			return WakeResult{ErrorCode: "proxy_setup_failed"}, nil
+		}
+		return WakeResult{ErrorCode: "missing_access_token"}, nil
+	}
+	defer func() { accessToken = ""; accountID = ""; proxyURL = "" }()
+	if c == nil {
+		return WakeResult{ErrorCode: "health_client_unavailable"}, nil
+	}
+	timeout := c.Timeout
+	if timeout <= 0 || timeout > 2*time.Minute {
+		timeout = 10 * time.Second
+	}
+	wakeCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	var transport http.RoundTripper = c.RoundTripper
+	if transport == nil {
+		transport, err = buildTransport(proxyURL, timeout)
+		if err != nil {
+			return WakeResult{ErrorCode: "proxy_setup_failed"}, nil
+		}
+	}
+	payload := map[string]any{
+		"model":     model,
+		"stream":    true,
+		"store":     false,
+		"reasoning": map[string]string{"effort": effort},
+		"input":     []any{map[string]any{"type": "message", "role": "user", "content": []any{map[string]string{"type": "input_text", "text": WakePrompt}}}},
+	}
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return WakeResult{ErrorCode: "wake_protocol_failed"}, nil
+	}
+	defer wipeBytes(body)
+	req, err := http.NewRequestWithContext(wakeCtx, http.MethodPost, WakeURL, bytes.NewReader(body))
+	if err != nil {
+		return WakeResult{ErrorCode: "wake_request_failed"}, nil
+	}
+	req.Header.Set("Authorization", "Bearer "+accessToken)
+	if accountID != "" {
+		req.Header.Set("ChatGPT-Account-ID", accountID)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "text/event-stream")
+	resp, err := transport.RoundTrip(req)
+	if err != nil {
+		if resp != nil && resp.Body != nil {
+			_ = resp.Body.Close()
+		}
+		return WakeResult{ErrorCode: safeWakeError(err)}, nil
+	}
+	if resp == nil {
+		return WakeResult{ErrorCode: "wake_protocol_failed"}, nil
+	}
+	if resp.Body == nil {
+		resp.Body = http.NoBody
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
+		return WakeResult{StatusCode: resp.StatusCode, ErrorCode: "wake_auth_failed"}, nil
+	}
+	if resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode == http.StatusPaymentRequired {
+		return WakeResult{StatusCode: resp.StatusCode, ErrorCode: "wake_quota_exhausted"}, nil
+	}
+	responseBody, readErr := io.ReadAll(io.LimitReader(resp.Body, MaxWakeResponseBody+1))
+	defer wipeBytes(responseBody)
+	if readErr != nil {
+		return WakeResult{StatusCode: resp.StatusCode, ErrorCode: "wake_protocol_failed"}, nil
+	}
+	if len(responseBody) > MaxWakeResponseBody {
+		return WakeResult{StatusCode: resp.StatusCode, ErrorCode: "wake_protocol_failed"}, nil
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		// The response was received, but an unexpected HTTP status is a
+		// protocol/remote-contract failure rather than a transport failure;
+		// do not spend the bounded retry budget on an invalid request contract.
+		return WakeResult{StatusCode: resp.StatusCode, ErrorCode: "wake_protocol_failed"}, nil
+	}
+	if !validWakeResponse(responseBody, resp.Header.Get("Content-Type")) {
+		return WakeResult{StatusCode: resp.StatusCode, ErrorCode: "wake_protocol_failed"}, nil
+	}
+	return WakeResult{StatusCode: resp.StatusCode, ErrorCode: "wake_success", Completed: true}, nil
+}
+
+// QuotaObservationFromProbe converts a safe health-check result into the
+// shared persistence projection. It deliberately preserves no response body
+// or credential-bound material.
+func QuotaObservationFromProbe(authIndex, identityHash string, summary domain.ProbeSummary) domain.QuotaObservation {
+	status := domain.QuotaUnknown
+	safeError := domain.SafeCode(summary.SafeError)
+	if safeError == "unknown" {
+		safeError = "quota_unknown"
+	}
+	switch summary.Status {
+	case domain.ProbeSuccess:
+		status = domain.QuotaAvailable
+	case domain.ProbeExhausted:
+		status = domain.QuotaExhausted
+	case domain.ProbeError, domain.ProbeAmbiguous:
+		if safeError == "" {
+			safeError = "quota_unknown"
+		}
+	}
+	checkedAt := summary.At
+	if checkedAt.IsZero() {
+		checkedAt = time.Now().UTC()
+	}
+	resetAt := quota.LatestFutureReset(summary.Windows, checkedAt)
+	return domain.QuotaObservation{AuthIndex: authIndex, IdentityHash: identityHash, Status: status, ResetAt: resetAt, CheckedAt: checkedAt.UTC(), SafeError: safeError, Windows: domain.SafeQuotaWindows(summary.Windows)}
+}
+
+func wipeBytes(value []byte) {
+	for index := range value {
+		value[index] = 0
+	}
+}
+
+func safeWakeError(err error) string {
+	if errors.Is(err, context.Canceled) {
+		return "canceled"
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return "timeout"
+	}
+	var n net.Error
+	if errors.As(err, &n) && n.Timeout() {
+		return "timeout"
+	}
+	return "wake_request_failed"
+}
+
+func validWakeResponse(body []byte, contentType string) bool {
+	if len(body) == 0 {
+		return false
+	}
+	if strings.Contains(strings.ToLower(contentType), "text/event-stream") || bytes.Contains(body, []byte("data:")) {
+		for _, line := range strings.Split(string(body), "\n") {
+			line = strings.TrimSpace(line)
+			if !strings.HasPrefix(line, "data:") {
+				continue
+			}
+			data := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
+			var event map[string]any
+			if json.Unmarshal([]byte(data), &event) != nil {
+				continue
+			}
+			if event["type"] == "response.completed" {
+				return true
+			}
+			if response, ok := event["response"].(map[string]any); ok && response["status"] == "completed" {
+				return true
+			}
+		}
+		return false
+	}
+	var response map[string]any
+	if json.Unmarshal(body, &response) != nil {
+		return false
+	}
+	if validCompletedResponse(response) {
+		return true
+	}
+	if nested, ok := response["response"].(map[string]any); ok && validCompletedResponse(nested) {
+		return true
+	}
+	return false
+}
+
+func validCompletedResponse(response map[string]any) bool {
+	if response == nil || response["status"] != "completed" {
+		return false
+	}
+	// A Responses success is not established by the status field (or an id)
+	// alone. Require a non-empty output structure so an error envelope or a
+	// truncated `{status: completed}` response cannot consume a wake window.
+	if output, ok := response["output"].([]any); ok {
+		if len(output) == 0 {
+			return false
+		}
+		for _, rawItem := range output {
+			item, ok := rawItem.(map[string]any)
+			if !ok || strings.TrimSpace(stringValue(item["type"])) == "" || !validOutputItem(item) {
+				return false
+			}
+		}
+		return true
+	}
+	if outputText, ok := response["output_text"].(string); ok && strings.TrimSpace(outputText) != "" {
+		return true
+	}
+	return false
+}
+
+func validOutputItem(item map[string]any) bool {
+	if content, ok := item["content"].([]any); ok {
+		if len(content) == 0 {
+			return false
+		}
+		for _, rawPart := range content {
+			part, ok := rawPart.(map[string]any)
+			if !ok || strings.TrimSpace(stringValue(part["type"])) == "" {
+				return false
+			}
+			if strings.TrimSpace(stringValue(part["text"])) == "" && strings.TrimSpace(stringValue(part["refusal"])) == "" && strings.TrimSpace(stringValue(part["arguments"])) == "" {
+				return false
+			}
+		}
+		return true
+	}
+	if summary, ok := item["summary"].([]any); ok {
+		return len(summary) > 0
+	}
+	return strings.TrimSpace(stringValue(item["arguments"])) != ""
+}
+
+func stringValue(value any) string {
+	text, _ := value.(string)
+	return text
 }
 
 // ParseResponse is exported for deterministic tests and adapters that already
@@ -307,7 +555,7 @@ func ParseResponse(status int, headers http.Header, body []byte, now time.Time) 
 		summary.SafeError = "unexpected_status"
 		return summary
 	}
-	if !recognized {
+	if !recognized || len(windows) == 0 {
 		summary.Status = domain.ProbeAmbiguous
 		summary.SafeError = "invalid_inventory"
 		return summary

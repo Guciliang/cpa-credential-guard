@@ -93,7 +93,7 @@ func NewWithClock(dir string, now func() time.Time) (*Store, LoadReport, error) 
 	if err := rejectSymlinkComponents(dir); err != nil {
 		return nil, LoadReport{Error: err.Error()}, err
 	}
-	root, err := os.OpenRoot(filepath.Clean(dir))
+	root, err := openProfileRoot(filepath.Clean(dir))
 	if err != nil {
 		return nil, LoadReport{Error: "profile directory cannot be opened safely"}, fmt.Errorf("open profile directory: %w", err)
 	}
@@ -112,10 +112,67 @@ func NewWithClock(dir string, now func() time.Time) (*Store, LoadReport, error) 
 
 func validateDir(dir string) error {
 	clean := filepath.Clean(strings.TrimSpace(dir))
-	if clean == "." || clean == ".." || strings.HasPrefix(clean, ".."+string(filepath.Separator)) || strings.ContainsAny(dir, "\x00\r\n") {
+	if clean == "." || clean == ".." || strings.HasPrefix(clean, ".."+string(filepath.Separator)) || filepath.Dir(clean) == clean || strings.ContainsAny(dir, "\x00\r\n") {
 		return errors.New("profile directory is unsafe")
 	}
 	return nil
+}
+
+// openProfileRoot pins the configured directory and creates missing
+// components beneath that pinned anchor. It mirrors the state store boundary:
+// a later path swap cannot redirect profile catalog I/O elsewhere.
+func openProfileRoot(path string) (*os.Root, error) {
+	clean := filepath.Clean(path)
+	anchorPath := "."
+	relative := clean
+	if filepath.IsAbs(clean) {
+		volume := filepath.VolumeName(clean)
+		if volume == "" {
+			anchorPath = string(filepath.Separator)
+		} else {
+			anchorPath = volume + string(filepath.Separator)
+		}
+		relative = strings.TrimPrefix(clean, anchorPath)
+		relative = strings.TrimLeft(relative, string(filepath.Separator))
+	}
+	if relative == "" || relative == "." {
+		return nil, errors.New("profile directory must not be a filesystem root")
+	}
+	anchor, err := os.OpenRoot(anchorPath)
+	if err != nil {
+		return nil, fmt.Errorf("open profile anchor: %w", err)
+	}
+	closeAnchor := true
+	defer func() {
+		if closeAnchor {
+			_ = anchor.Close()
+		}
+	}()
+	parts := strings.Split(relative, string(filepath.Separator))
+	prefix := ""
+	for _, part := range parts {
+		if part == "" || part == "." {
+			continue
+		}
+		if part == ".." {
+			return nil, errors.New("profile directory escapes its anchor")
+		}
+		if prefix == "" {
+			prefix = part
+		} else {
+			prefix = filepath.Join(prefix, part)
+		}
+		if err := anchor.Mkdir(prefix, 0o700); err != nil && !errors.Is(err, os.ErrExist) {
+			return nil, fmt.Errorf("create profile directory component: %w", err)
+		}
+	}
+	root, err := anchor.OpenRoot(relative)
+	if err != nil {
+		return nil, err
+	}
+	closeAnchor = false
+	_ = anchor.Close()
+	return root, nil
 }
 
 func rejectSymlinkComponents(path string) error {
@@ -177,36 +234,53 @@ func (s *Store) load() (LoadReport, error) {
 	if err != nil {
 		return LoadReport{Error: "profile catalog cannot be opened safely"}, fmt.Errorf("open profile catalog: %w", err)
 	}
-	defer file.Close()
+	closeFile := func() error {
+		if file == nil {
+			return nil
+		}
+		err := file.Close()
+		file = nil
+		return err
+	}
 	if err := file.Chmod(0o600); err != nil {
+		_ = closeFile()
 		return LoadReport{Error: "profile catalog permissions cannot be restricted"}, err
 	}
 	raw, err := io.ReadAll(io.LimitReader(file, maxFileBytes+1))
 	if err != nil || len(raw) > maxFileBytes {
+		_ = closeFile()
 		return s.recoverCorrupt(false)
 	}
 	var candidate document
 	decoder := json.NewDecoder(bytes.NewReader(raw))
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(&candidate); err != nil {
+		_ = closeFile()
 		return s.recoverCorrupt(false)
 	}
 	var extra any
 	if err := decoder.Decode(&extra); err != io.EOF || candidate.SchemaVersion != domain.SchemaVersion || candidate.UpdatedAt.IsZero() {
+		_ = closeFile()
 		return s.recoverCorrupt(candidate.SchemaVersion != domain.SchemaVersion)
 	}
 	loaded := make(map[string]storedProfile, len(candidate.Profiles))
 	for _, profile := range candidate.Profiles {
 		if err := validateStored(profile); err != nil || profile.UpdatedAt.IsZero() {
+			_ = closeFile()
 			return s.recoverCorrupt(false)
 		}
 		if _, exists := loaded[profile.ID]; exists {
+			_ = closeFile()
 			return s.recoverCorrupt(false)
 		}
 		loaded[profile.ID] = profile
 	}
 	if len(loaded) > maxProfiles {
+		_ = closeFile()
 		return s.recoverCorrupt(false)
+	}
+	if err := closeFile(); err != nil {
+		return LoadReport{Error: "profile catalog cannot be closed safely"}, fmt.Errorf("close profile catalog: %w", err)
 	}
 	s.profiles = loaded
 	return LoadReport{}, nil
@@ -368,6 +442,9 @@ func (s *Store) toProfile(profile storedProfile) Profile {
 }
 
 func (s *Store) atomicWrite(next map[string]storedProfile) error {
+	if s == nil || s.root == nil {
+		return errors.New("profile store unavailable")
+	}
 	profiles := make([]storedProfile, 0, len(next))
 	for _, profile := range next {
 		profiles = append(profiles, profile)

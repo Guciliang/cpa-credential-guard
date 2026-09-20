@@ -97,6 +97,14 @@ func dueState(t *testing.T, store *state.Store, record domain.OwnershipRecord) {
 		t.Fatal(err)
 	}
 }
+func TestNewWithClockPreservesConfiguredScanInterval(t *testing.T) {
+	configured := 30 * time.Second
+	manager := NewWithClock(nil, nil, nil, Config{ScanInterval: configured}, time.Now)
+	if manager.cfg.ScanInterval != configured {
+		t.Fatalf("scan interval=%s, want %s", manager.cfg.ScanInterval, configured)
+	}
+}
+
 func TestRecoverySuccessfulProbeRemovesOwnership(t *testing.T) {
 	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	raw := `{"access_token":"secret","disabled":true,"proxy_url":"http://proxy.example:8080"}`
@@ -123,6 +131,10 @@ func TestRecoverySuccessfulProbeRemovesOwnership(t *testing.T) {
 	}
 	if _, ok := store.Get("codex:a-1"); ok {
 		t.Fatal("successful probe retained ownership")
+	}
+	observation, ok := store.GetObservation("codex:a-1")
+	if !ok || observation.LastHealthCheck == nil || observation.LastHealthCheck.Status != domain.ProbeSuccess {
+		t.Fatalf("successful health check was not retained safely: %#v ok=%v", observation, ok)
 	}
 	var fields map[string]any
 	_ = json.Unmarshal(h.raw, &fields)
