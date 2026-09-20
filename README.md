@@ -122,10 +122,10 @@ wakeup_reasoning_effort: low
 * 恢复操作每次只执行一次有超时限制的凭证级 `GET https://chatgpt.com/backend-api/wham/usage` 请求。侧边栏打开状态页、插件安装和普通周期扫描不会自动查询全部额度；只有“查询全部额度”或单行“查询额度”按钮会触发额度查询。临时访问令牌不会被持久化、记录日志、显示给用户，也不会传递给代理测试。
 * 代理测试使用独立的、有超时限制的 HTTP/SOCKS 传输，并依次访问基础连通性、OpenAI、Anthropic、Gemini、Grok 五个固定的非 Codex HTTPS 目标。代理测试不会接收 AuthIndex 或凭证 JSON，不发送 Authorization/Cookie，不接受浏览器提交的目标 URL；代理建立失败后也不会回退到直连。
 * 开启任一主动唤醒开关后，插件才会在内存中读取对应凭证并向固定的 `https://chatgpt.com/backend-api/codex/responses` 发送一次受控真实请求，模型为 `gpt-5.6-luna`、思考等级默认为 `low`、提示词固定为 `Hello`。该请求可能消耗真实额度；令牌、请求/响应内容和原始错误不会写入日志、状态、管理响应或页面。
-* 静态侧边栏资源不包含动态数据。经过认证的管理路由只返回代理备注、脱敏端点、安全状态和每项独立结果。
+* 静态侧边栏资源不包含动态数据。经过认证的管理路由只返回代理名称、脱敏端点、安全状态和每项独立结果。
 * 插件只声明 `usage_plugin` 和 `management_api` 能力，不注册 scheduler/router/executor/interceptor，也不实现自定义的 502 重试。
 
 * 认证管理路由位于 `/v0/management/plugins/cpa-credential-guard/` 下，包括 `GET /status`、`GET/POST /proxy/profiles`、`POST /proxy/profiles/delete`、`POST /proxy/preview`、`POST /proxy/apply`、`POST /proxy/test`、`POST /quota/query` 和 `POST /recovery/scan`。`POST /quota/query` 只接受 `{}`（全部）或 `{ "auth_index": "..." }`（单项）。浏览器资源地址是 `/v0/resource/plugins/cpa-credential-guard/index.html`，其中不包含由服务器渲染的凭证数据。
-* 代理备注目录和运行状态都位于 `state_dir`：目录中的代理配置以受限权限保存，前端和状态投影只显示备注与脱敏端点；给凭证分配代理时选择已保存的备注，不需要反复输入 URL。代理预览计划五分钟后过期，并且会根据最新的 Host API 快照重新校验；异构批量操作会返回每个项目独立的结果。原始代理 URL 不会返回给前端，也不会写入运行时所有权状态。
+* 代理目录和运行状态都位于 `state_dir`：目录中的代理配置以受限权限保存，前端和状态投影只显示代理名称与脱敏端点；给凭证分配代理时选择已保存的代理，不需要反复输入 URL。代理预览计划五分钟后过期，并且会根据最新的 Host API 快照重新校验；异构批量操作会返回每个项目独立的结果。原始代理 URL 不会返回给前端，也不会写入运行时所有权状态。
 
 请参阅 `NOTICE.md` 了解 SDK、直接依赖和行为参考的许可说明。项目没有复制 Sub2API 的 LGPL 源码，也没有采用 `codex-429-autoban` 的调度器行为。

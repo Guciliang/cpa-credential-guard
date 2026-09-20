@@ -189,9 +189,9 @@ func (s *Service) RegisterManagement(_ context.Context, req pluginapi.Management
 	return pluginapi.ManagementRegistrationResponse{
 		Routes: []pluginapi.ManagementRoute{
 			{Method: http.MethodGet, Path: managementPrefix + "/status", Description: "安全的凭证守护状态投影。", Handler: handler},
-			{Method: http.MethodGet, Path: managementPrefix + "/proxy/profiles", Description: "查看已保存的代理备注。", Handler: handler},
-			{Method: http.MethodPost, Path: managementPrefix + "/proxy/profiles", Description: "保存代理备注和代理地址。", Handler: handler},
-			{Method: http.MethodPost, Path: managementPrefix + "/proxy/profiles/delete", Description: "删除代理备注。", Handler: handler},
+			{Method: http.MethodGet, Path: managementPrefix + "/proxy/profiles", Description: "查看已保存的代理。", Handler: handler},
+			{Method: http.MethodPost, Path: managementPrefix + "/proxy/profiles", Description: "保存代理名称和代理地址。", Handler: handler},
+			{Method: http.MethodPost, Path: managementPrefix + "/proxy/profiles/delete", Description: "删除代理。", Handler: handler},
 			{Method: http.MethodPost, Path: managementPrefix + "/proxy/preview", Description: "应用前验证代理批次。", Handler: handler},
 			{Method: http.MethodPost, Path: managementPrefix + "/proxy/apply", Description: "应用已验证的代理计划。", Handler: handler},
 			{Method: http.MethodPost, Path: managementPrefix + "/proxy/test", Description: "测试固定非 Codex 目标的无令牌代理连通性。", Handler: handler},
@@ -420,7 +420,7 @@ func (s *Service) status(ctx context.Context) (pluginapi.ManagementResponse, err
 			if groups[key] == nil {
 				remark := row.Proxy.Remark
 				if remark == "" {
-					remark = "未命名代理"
+					remark = "未关联名称"
 				}
 				groups[key] = &proxyGroup{ProfileID: row.Proxy.ProfileID, Remark: remark, Endpoint: row.Proxy.Endpoint}
 			}
@@ -844,7 +844,7 @@ func (s *Service) test(ctx context.Context, raw []byte) (pluginapi.ManagementRes
 	for _, profileID := range request.ProfileIDs {
 		profile, ok := s.profileStore.Get(strings.TrimSpace(profileID))
 		if !ok {
-			items = append(items, domain.ProxyTestItem{ProfileID: strings.TrimSpace(profileID), Status: "fail", ErrorCode: "profile_not_found", Message: "代理备注不存在"})
+			items = append(items, domain.ProxyTestItem{ProfileID: strings.TrimSpace(profileID), Status: "fail", ErrorCode: "profile_not_found", Message: "代理不存在"})
 			continue
 		}
 		addQuality(profile.ID, profile.Remark, checker.CheckQuality(ctx, profile.ProxyURL))

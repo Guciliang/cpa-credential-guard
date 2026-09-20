@@ -239,12 +239,12 @@ func TestManagementServesStaticResourceThroughDynamicPath(t *testing.T) {
 	if !strings.Contains(body, "CPA 凭证守护") {
 		t.Fatalf("resource body does not contain the plugin title")
 	}
-	for _, marker := range []string{"lang=\"zh-CN\"", "color-scheme: dark", "代理管理", "代理板块", "代理备注", "保存代理备注", "data-config-key", "type=\"checkbox\"", "PATCH", "应用预览", "测试代理", "连接 CPA", "CPA 管理密钥", "manual-key", "clear-manual", "credentials = 'omit'", "AbortController", "check-target", "跳到主要内容", "pagehide", "invalidatePlan", "previewVersion", "statusProjection", "input.dataset.profileSelect", "proxy_profiles", "profile_id", "cli-proxy-auth", "enc::v1::", "cli-proxy-api-webui::secure-storage", "Authorization", "management_key_required", "记住密码", "prefers-reduced-motion", "proxy-test-results", "query-all-quota", "queryQuota", "quotaRequestGeneration", "quota_probe_disabled", "page-size", "全选当前页", "initial_wakeup_enabled", "reset_wakeup_enabled", "wakeup_model", "wakeup_reasoning_effort", "health_check", "base_connectivity", "target_unexpected_status", "wake_auth_failed", "wake_quota_exhausted", "需要重新认证", "额度不足：等待额度窗口或手动查询"} {
+	for _, marker := range []string{"lang=\"zh-CN\"", "color-scheme: dark", "代理管理", "代理板块", "代理名称", "保存代理名称", "选择代理", "未关联名称", "selection-summary", "renderQuotaResults", "proxySafeMessage", "probe_enabled", "请先选择凭证", "data-config-key", "type=\"checkbox\"", "PATCH", "应用预览", "测试代理", "连接 CPA", "CPA 管理密钥", "manual-key", "clear-manual", "credentials = 'omit'", "AbortController", "check-target", "跳到主要内容", "pagehide", "invalidatePlan", "previewVersion", "statusProjection", "input.dataset.profileSelect", "proxy_profiles", "profile_id", "cli-proxy-auth", "enc::v1::", "cli-proxy-api-webui::secure-storage", "Authorization", "management_key_required", "记住密码", "prefers-reduced-motion", "proxy-test-results", "query-all-quota", "queryQuota", "quotaRequestGeneration", "quota_probe_disabled", "page-size", "全选当前页", "initial_wakeup_enabled", "reset_wakeup_enabled", "wakeup_model", "wakeup_reasoning_effort", "health_check", "base_connectivity", "target_unexpected_status", "wake_auth_failed", "wake_quota_exhausted", "需要重新认证", "额度不足：等待额度窗口或手动查询"} {
 		if !strings.Contains(body, marker) {
 			t.Fatalf("resource body missing Chinese/dark UI marker %q", marker)
 		}
 	}
-	for _, forbidden := range []string{"lang=\"en\"", "color-scheme: light", "color-scheme: light dark", "light-theme", "theme-toggle", "fingerprint", "Fingerprint", "指纹", "批量代理管理", "target_url", "custom_target"} {
+	for _, forbidden := range []string{"lang=\"en\"", "color-scheme: light", "color-scheme: light dark", "light-theme", "theme-toggle", "fingerprint", "Fingerprint", "指纹", "批量代理管理", "target_url", "custom_target", "代理备注", "选择代理备注", "共享代理备注", "未命名代理", "健康检查不等于实际使用", "text(item.message)"} {
 		if strings.Contains(body, forbidden) {
 			t.Fatalf("resource body contains forbidden light/English theme marker %q", forbidden)
 		}
